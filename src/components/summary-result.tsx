@@ -15,6 +15,7 @@ import {
   ThumbsUp,
   Star,
   ChevronDown,
+  Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -38,7 +39,15 @@ export interface Summary {
   created_at: string;
 }
 
-export function SummaryResults({ summary }: { summary: Summary }) {
+export function SummaryResults({
+  summary,
+  onSave,
+  saving = false,
+}: {
+  summary: Summary;
+  onSave?: () => void;
+  saving?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
 
@@ -104,6 +113,16 @@ export function SummaryResults({ summary }: { summary: Summary }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {onSave ? (
+            <Button
+              className="bg-primary hover:bg-primary/90 text-white font-medium shadow-xs"
+              onClick={onSave}
+              disabled={saving}
+            >
+              <Save />
+              {saving ? "Saving..." : "Save Summary"}
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             className="border-border"

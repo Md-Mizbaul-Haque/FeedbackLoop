@@ -176,27 +176,30 @@ export default function CreateSummaryPage() {
         throw new Error("Empty analysis result.");
       }
 
-      const { data: row, error: insertError } = await supabase
-        .from("summaries")
-        .insert({
-          title: result.title,
-          reviews_count: reviewsList.length,
-          keywords: result.keywords,
-          summary_points: result.summary_points,
-          positive_sentiment_pct: result.positive_sentiment_pct ?? 0,
-          average_rating: result.average_rating ?? 0,
-        })
-        .select("id")
-        .single();
+      const summary = {
+        title: result.title,
+        reviews_count: reviewsList.length,
+        keywords: result.keywords,
+        summary_points: result.summary_points,
+        positive_sentiment_pct: result.positive_sentiment_pct ?? 0,
+        average_rating: result.average_rating ?? 0,
+        reviews: reviewsList.join("\n"),
+        widget_id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        created_at: new Date().toISOString(),
+      };
 
-      if (insertError) {
-        throw insertError;
-      }
+      sessionStorage.setItem(
+        "feedbackloop:latest-summary",
+        JSON.stringify(summary),
+      );
 
       toast.success(
         `Summary generated from ${reviewsList.length} reviews!`,
       );
-      router.push(`/results?id=${row.id}`);
+      router.push("/results");
     } catch (err) {
       console.error(err);
       toast.error("AI analysis failed. Please try again.");
