@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { Webhook } from "standardwebhooks";
+import { isEmailConfigured, sendMail } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,24 +9,8 @@ const hookSecret = (process.env.SEND_EMAIL_HOOK_SECRET ?? "").replace(
   "v1,whsec_",
   "",
 );
-const smtpFrom =
-  process.env.SMTP_FROM ??
-  `FeedbackLoop <${process.env.SMTP_USER ?? "no-reply@example.com"}>`;
 const authBaseUrl =
   process.env.SUPABASE_AUTH_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-
-const transport = nodemailer.createTransport({
-  host: process.env.SMTP_HOST ?? "smtp.gmail.com",
-  port: Number(process.env.SMTP_PORT ?? 465),
-  secure: Number(process.env.SMTP_PORT ?? 465) === 465,
-  pool: true,
-  maxConnections: 2,
-  maxMessages: 100,
-  auth: {
-    user: process.env.SMTP_USER ?? "",
-    pass: process.env.SMTP_PASS ?? "",
-  },
-});
 
 interface EmailData {
   token: string;
@@ -175,10 +159,6 @@ function renderHtml(
 </div>`;
 }
 
-function sendMail(to: string, subject: string, html: string) {
-  return transport.sendMail({ from: smtpFrom, to, subject, html });
-}
-
 interface MailJob {
   email: string;
   url?: string;
@@ -283,20 +263,19 @@ async function handleEmailAction(
       job.url ? { url: job.url, label } : undefined,
       job.code,
     );
-    await sendMail(job.email, subject, html);
-  }
+    await sendMail(job.email, subject, html);  }
 
   return true;
 }
 
 export async function POST(req: NextRequest) {
-  if (!hookSecret || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  if (!hookSecret || !isEmailConfigured()) {
     return NextResponse.json(
       {
         error: {
           http_code: 500,
           message:
-            "Send email hook is not configured. Set SEND_EMAIL_HOOK_SECRET, SMTP_USER and SMTP_PASS.",
+            "Send email hook is not configured. Set SEND_EMAIL_HOOK_SECRET, SMTP_USER and SMTP_PASSWORD.",
         },
       },
       { status: 500 },

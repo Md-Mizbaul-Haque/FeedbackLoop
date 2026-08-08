@@ -1,22 +1,5 @@
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
-import nodemailer from "nodemailer";
-
-const smtpFrom =
-  process.env.SMTP_FROM ??
-  `FeedbackLoop <${process.env.SMTP_USER ?? "no-reply@example.com"}>`;
-
-const transport = nodemailer.createTransport({
-  host: process.env.SMTP_HOST ?? "smtp.gmail.com",
-  port: Number(process.env.SMTP_PORT ?? 465),
-  secure: Number(process.env.SMTP_PORT ?? 465) === 465,
-  pool: true,
-  maxConnections: 2,
-  maxMessages: 100,
-  auth: {
-    user: process.env.SMTP_USER ?? "",
-    pass: process.env.SMTP_PASS ?? "",
-  },
-});
+import { sendMail } from "@/lib/email";
 
 export function generateOtpCode(): string {
   return String(randomInt(100000, 1000000));
@@ -57,10 +40,5 @@ function renderHtml(code: string): string {
 }
 
 export async function sendOtpEmail(to: string, code: string): Promise<void> {
-  await transport.sendMail({
-    from: smtpFrom,
-    to,
-    subject: "Your FeedbackLoop verification code",
-    html: renderHtml(code),
-  });
+  await sendMail(to, "Your FeedbackLoop verification code", renderHtml(code));
 }
