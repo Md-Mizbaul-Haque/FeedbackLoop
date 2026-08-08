@@ -113,7 +113,7 @@ export function Sidebar({ onNavClick }: SidebarProps) {
           <Button
             nativeButton={false}
             render={<Link href="/login" target="_blank" rel="noopener noreferrer" onClick={onNavClick} />}
-            className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted px-3"
+            className="w-full justify-start text-white hover:text-foreground hover:bg-muted px-3"
           >
             <LogIn className="h-4 w-4 mr-3" />
             Sign in
