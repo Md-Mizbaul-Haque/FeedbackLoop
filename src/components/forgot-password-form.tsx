@@ -82,6 +82,8 @@ export default function ForgotPasswordPage() {
           <p className="text-center text-sm text-muted-foreground">
             <Link
               href="/login"
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-primary font-semibold hover:underline"
             >
               <ArrowLeft className="h-3.5 w-3.5" />

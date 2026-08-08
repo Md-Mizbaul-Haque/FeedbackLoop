@@ -272,6 +272,8 @@ export default function SignupPage() {
             Already have an account?{" "}
             <Link
               href="/login"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-primary font-semibold hover:underline"
             >
               Sign in

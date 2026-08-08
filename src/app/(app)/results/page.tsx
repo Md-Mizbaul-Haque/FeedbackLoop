@@ -1,9 +1,14 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { SummaryResults } from "@/components/summary-result";
 import { WidgetPreview } from "@/components/widget-preview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+
+export const metadata: Metadata = {
+  title: "Summary Results",
+};
 
 export default async function ResultsPage({
   searchParams,

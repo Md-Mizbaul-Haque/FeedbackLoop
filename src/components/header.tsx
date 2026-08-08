@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import {
   Bell,
@@ -11,7 +10,6 @@ import {
   HelpCircle,
   LogOut,
   Menu,
-  Search,
   Settings,
   User as UserIcon,
 } from "lucide-react";
@@ -23,30 +21,10 @@ import { Sidebar } from "@/components/sideBar";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
-const pageMeta: Record<string, { title: string; subtitle: string }> = {
-  "/results": {
-    title: "Summary Results",
-    subtitle: "AI-generated insights from your customer feedback",
-  },
-  "/summaries": {
-    title: "My Summaries",
-    subtitle: "View and manage your generated summaries",
-  },
-  "/profile": {
-    title: "Profile",
-    subtitle: "Manage your account information",
-  },
-  "/settings": {
-    title: "Settings",
-    subtitle: "Customize your workspace preferences",
-  },
-};
-
 const menuItemClasses =
   "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-foreground outline-none transition-colors data-highlighted:bg-muted data-highlighted:text-foreground";
 
 export function Header() {
-  const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
 
@@ -65,11 +43,6 @@ export function Header() {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const meta = pageMeta[pathname] ?? {
-    title: "Dashboard",
-    subtitle: "Overview of your feedback summaries",
-  };
 
   const displayName =
     user?.user_metadata?.full_name ??
@@ -93,7 +66,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 h-16 shrink-0 border-b border-border bg-white/90 backdrop-blur-md">
       <div className="flex h-full items-center justify-between gap-4 px-4 md:px-8">
-        {/* Left: mobile menu + page title */}
+        {/* Left: mobile menu */}
         <div className="flex min-w-0 items-center gap-3">
           <div className="md:hidden flex items-center">
             <Sheet>
@@ -107,32 +80,10 @@ export function Header() {
               </SheetContent>
             </Sheet>
           </div>
-
-          <div className="min-w-0">
-            <h1 className="truncate text-base md:text-lg font-bold tracking-tight text-foreground">
-              {meta.title}
-            </h1>
-            <p className="hidden sm:block truncate text-xs text-muted-foreground">
-              {meta.subtitle}
-            </p>
-          </div>
         </div>
 
-        {/* Right: search + actions */}
+        {/* Right: actions */}
         <div className="flex items-center gap-1.5 md:gap-2">
-          {/* Search */}
-          <div className="hidden lg:flex relative items-center">
-            <Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
-            <input
-              type="search"
-              placeholder="Search…"
-              className="h-9 w-56 xl:w-64 rounded-lg border border-border bg-muted/40 pl-9 pr-14 text-sm text-foreground placeholder:text-muted-foreground outline-none transition-colors focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/30"
-            />
-            <kbd className="absolute right-3 rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              ⌘K
-            </kbd>
-          </div>
-
           {/* Help */}
           <Button
             variant="ghost"
@@ -160,7 +111,7 @@ export function Header() {
           {!user ? (
             <Button
               nativeButton={false}
-              render={<Link href="/login" />}
+              render={<Link href="/login" target="_blank" rel="noopener noreferrer" />}
               className="h-9 rounded-lg"
             >
               <UserIcon className="h-4 w-4" />

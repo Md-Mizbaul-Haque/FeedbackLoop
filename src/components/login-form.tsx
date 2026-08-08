@@ -245,6 +245,8 @@ export default function LoginPage() {
             No account yet?{" "}
             <Link
               href="/signup"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-primary font-semibold hover:underline"
             >
               Sign up

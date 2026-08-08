@@ -142,6 +142,18 @@ export default function CreateSummaryPage() {
       });
 
       if (error) {
+        const ctx = (error as { context?: Response }).context;
+        if (ctx) {
+          try {
+            const body = (await ctx.json()) as { error?: string };
+            if (body?.error) {
+              toast.error(body.error);
+              return;
+            }
+          } catch {
+            // ignore malformed error bodies; fall through to generic error
+          }
+        }
         throw error;
       }
       if (data?.error) {
