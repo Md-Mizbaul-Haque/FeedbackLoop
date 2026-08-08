@@ -160,72 +160,82 @@ export function Header() {
 
           <div className="mx-1 hidden h-6 w-px bg-border sm:block" />
 
-          {/* User menu */}
-          <BaseMenu.Root>
-            <BaseMenu.Trigger
-              render={
-                <button
-                  type="button"
-                  className="flex cursor-pointer items-center gap-3 rounded-lg p-1 pl-2 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/40 aria-expanded:bg-muted/60"
-                >
-                  <Avatar className="h-9 w-9">
-                    {user?.user_metadata?.avatar_url ? (
-                      <AvatarImage
-                        src={user.user_metadata.avatar_url as string}
-                        alt={displayName}
-                      />
-                    ) : null}
-                    <AvatarFallback>{initials}</AvatarFallback>
-                  </Avatar>
-                  <span className="hidden sm:block text-left">
-                    <span className="block text-sm font-semibold leading-none text-foreground">
-                      {user ? displayName : "…"}
+          {/* User area */}
+          {!user ? (
+            <Button
+              render={<Link href="/login" />}
+              className="h-9 rounded-lg"
+            >
+              <UserIcon className="h-4 w-4" />
+              Sign in
+            </Button>
+          ) : (
+            <BaseMenu.Root>
+              <BaseMenu.Trigger
+                render={
+                  <button
+                    type="button"
+                    className="flex cursor-pointer items-center gap-3 rounded-lg p-1 pl-2 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/40 aria-expanded:bg-muted/60"
+                  >
+                    <Avatar className="h-9 w-9">
+                      {user?.user_metadata?.avatar_url ? (
+                        <AvatarImage
+                          src={user.user_metadata.avatar_url as string}
+                          alt={displayName}
+                        />
+                      ) : null}
+                      <AvatarFallback>{initials}</AvatarFallback>
+                    </Avatar>
+                    <span className="hidden sm:block text-left">
+                      <span className="block text-sm font-semibold leading-none text-foreground">
+                        {user ? displayName : "…"}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {user?.email ?? ""}
+                      </span>
                     </span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {user?.email ?? ""}
-                    </span>
-                  </span>
-                  <ChevronDown className="hidden sm:block h-4 w-4 text-muted-foreground" />
-                </button>
-              }
-            />
-            <BaseMenu.Portal>
-              <BaseMenu.Positioner align="end" sideOffset={8} className="z-50">
-                <BaseMenu.Popup className="w-60 rounded-xl border border-border bg-white p-1.5 shadow-lg shadow-black/5 transition-[opacity,transform] duration-150 data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0">
-                  <div className="mb-1 border-b border-border px-2.5 py-2">
-                    <p className="text-sm font-semibold text-foreground">
-                      {user ? displayName : "…"}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {user?.email ?? ""}
-                    </p>
-                  </div>
-                  <BaseMenu.Item
-                    render={<Link href="/profile" />}
-                    className={menuItemClasses}
-                  >
-                    <UserIcon className="h-4 w-4 text-muted-foreground" />
-                    Profile
-                  </BaseMenu.Item>
-                  <BaseMenu.Item
-                    render={<Link href="/settings" />}
-                    className={menuItemClasses}
-                  >
-                    <Settings className="h-4 w-4 text-muted-foreground" />
-                    Settings
-                  </BaseMenu.Item>
-                  <BaseMenu.Separator className="my-1 h-px bg-border" />
-                  <BaseMenu.Item
-                    className={cn(menuItemClasses, "text-destructive data-highlighted:text-destructive data-highlighted:bg-destructive/10")}
-                    onClick={handleLogout}
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Log out
-                  </BaseMenu.Item>
-                </BaseMenu.Popup>
-              </BaseMenu.Positioner>
-            </BaseMenu.Portal>
-          </BaseMenu.Root>
+                    <ChevronDown className="hidden sm:block h-4 w-4 text-muted-foreground" />
+                  </button>
+                }
+              />
+              <BaseMenu.Portal>
+                <BaseMenu.Positioner align="end" sideOffset={8} className="z-50">
+                  <BaseMenu.Popup className="w-60 rounded-xl border border-border bg-white p-1.5 shadow-lg shadow-black/5 transition-[opacity,transform] duration-150 data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0">
+                    <div className="mb-1 border-b border-border px-2.5 py-2">
+                      <p className="text-sm font-semibold text-foreground">
+                        {user ? displayName : "…"}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {user?.email ?? ""}
+                      </p>
+                    </div>
+                    <BaseMenu.Item
+                      render={<Link href="/profile" />}
+                      className={menuItemClasses}
+                    >
+                      <UserIcon className="h-4 w-4 text-muted-foreground" />
+                      Profile
+                    </BaseMenu.Item>
+                    <BaseMenu.Item
+                      render={<Link href="/settings" />}
+                      className={menuItemClasses}
+                    >
+                      <Settings className="h-4 w-4 text-muted-foreground" />
+                      Settings
+                    </BaseMenu.Item>
+                    <BaseMenu.Separator className="my-1 h-px bg-border" />
+                    <BaseMenu.Item
+                      className={cn(menuItemClasses, "text-destructive data-highlighted:text-destructive data-highlighted:bg-destructive/10")}
+                      onClick={handleLogout}
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Log out
+                    </BaseMenu.Item>
+                  </BaseMenu.Popup>
+                </BaseMenu.Positioner>
+              </BaseMenu.Portal>
+            </BaseMenu.Root>
+          )}
         </div>
       </div>
     </header>

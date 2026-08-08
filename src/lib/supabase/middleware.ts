@@ -31,20 +31,6 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
   const isSignupRoute = request.nextUrl.pathname.startsWith("/signup");
-  const isForgotPasswordRoute =
-    request.nextUrl.pathname.startsWith("/forgot-password");
-
-  if (
-    !user &&
-    !isAuthRoute &&
-    !isSignupRoute &&
-    !isForgotPasswordRoute
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("next", request.nextUrl.pathname);
-    return NextResponse.redirect(url);
-  }
 
   if (user && (isAuthRoute || isSignupRoute)) {
     const url = request.nextUrl.clone();

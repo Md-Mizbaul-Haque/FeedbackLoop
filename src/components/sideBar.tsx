@@ -1,25 +1,28 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   FileText,
   PlusCircle,
-  User,
+  User as UserIcon,
   Settings,
   LogOut,
+  LogIn,
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "My Summaries", href: "/summaries", icon: FileText },
   { name: "Create New", href: "/create", icon: PlusCircle },
-  { name: "Profile", href: "/profile", icon: User },
+  { name: "Profile", href: "/profile", icon: UserIcon },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -30,6 +33,23 @@ interface SidebarProps {
 export function Sidebar({ onNavClick }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleLogout = async () => {
     const supabase = createClient();
@@ -82,16 +102,26 @@ export function Sidebar({ onNavClick }: SidebarProps) {
         </nav>
       </div>
 
-      {/* Logout Action */}
+      {/* Auth Action */}
       <div className="pt-4 border-t border-border">
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted px-3"
-          onClick={handleLogout}
-        >
-          <LogOut className="h-4 w-4 mr-3" />
-          Log out
-        </Button>
+        {user ? (
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted px-3"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4 mr-3" />
+            Log out
+          </Button>
+        ) : (
+          <Button
+            render={<Link href="/login" onClick={onNavClick} />}
+            className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted px-3"
+          >
+            <LogIn className="h-4 w-4 mr-3" />
+            Sign in
+          </Button>
+        )}
       </div>
     </aside>
   );
