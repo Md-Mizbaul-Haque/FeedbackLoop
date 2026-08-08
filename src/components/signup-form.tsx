@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -16,10 +16,21 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  Field,
+  FieldContent,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
+import { resolveDefaultLanding } from "@/lib/settings";
 
 const RESEND_COOLDOWN = 60;
 
@@ -37,7 +48,6 @@ export default function SignupPage() {
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendIn, setResendIn] = useState(0);
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const countingDown = step === "otp" && resendIn > 0;
 
@@ -133,7 +143,6 @@ export default function SignupPage() {
     setOtpError("");
     setResendIn(RESEND_COOLDOWN);
     setStep("otp");
-    setTimeout(() => otpRefs.current[0]?.focus(), 0);
   };
 
   const handleResend = async () => {
@@ -152,40 +161,6 @@ export default function SignupPage() {
     setOtpError("");
     setResendIn(RESEND_COOLDOWN);
     toast.success("A new code has been sent.");
-  };
-
-  const handleOtpChange = (index: number, value: string) => {
-    const digits = value.replace(/\D/g, "").slice(0, 6);
-    if (digits.length > 1) {
-      setCode(digits);
-      otpRefs.current[Math.min(digits.length, 5)]?.focus();
-      setOtpError("");
-      return;
-    }
-    const next = code.slice(0, index) + digits + code.slice(index + 1);
-    setCode(next);
-    setOtpError("");
-    if (digits && index < 5) otpRefs.current[index + 1]?.focus();
-  };
-
-  const handleOtpKeyDown = (
-    index: number,
-    e: React.KeyboardEvent<HTMLInputElement>,
-  ) => {
-    if (e.key === "Backspace" && !code[index] && index > 0) {
-      otpRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const digits = e.clipboardData
-      .getData("text")
-      .replace(/\D/g, "")
-      .slice(0, 6);
-    setCode(digits);
-    otpRefs.current[Math.min(digits.length, 5)]?.focus();
-    setOtpError("");
   };
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -221,7 +196,14 @@ export default function SignupPage() {
       }
 
       toast.success("Account created — welcome!");
-      router.push("/");
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        router.push(await resolveDefaultLanding(supabase, user, "/"));
+      } else {
+        router.push("/");
+      }
       router.refresh();
     } finally {
       setVerifying(false);
@@ -244,7 +226,7 @@ export default function SignupPage() {
           <span className="font-bold text-xl tracking-tight">FeedbackLoop</span>
         </div>
 
-        <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="rounded-xl border border-border bg-card p-6 sm:p-8 space-y-6">
           {step === "details" ? (
             <>
               <div className="space-y-1.5 text-center">
@@ -259,7 +241,7 @@ export default function SignupPage() {
               <div className="space-y-3">
                 <Button
                   variant="outline"
-                  className="w-full h-11 border-border justify-center font-medium hover:bg-slate-50 rounded-xl"
+                  className="w-full h-11 justify-center font-medium rounded-xl"
                   disabled={loading}
                   onClick={handleGoogleSignup}
                 >
@@ -290,7 +272,7 @@ export default function SignupPage() {
 
                 <Button
                   variant="outline"
-                  className="w-full h-11 border-border justify-center font-medium hover:bg-slate-50 rounded-xl"
+                  className="w-full h-11 justify-center font-medium rounded-xl"
                   disabled={loading}
                   onClick={handleMagicLink}
                 >
@@ -305,85 +287,97 @@ export default function SignupPage() {
 
               <div className="relative flex items-center justify-center">
                 <Separator className="w-full" />
-                <span className="absolute bg-white px-3 text-xs text-muted-foreground uppercase font-medium">
+                <span className="absolute bg-background px-3 text-xs text-muted-foreground uppercase font-medium">
                   Or sign up with email
                 </span>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email address</Label>
-                  <div className="relative">
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="name@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="h-11 pl-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-                      required
-                    />
-                    <Mail className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  </div>
-                </div>
+                <Field>
+                  <FieldLabel htmlFor="email">Email address</FieldLabel>
+                  <FieldContent>
+                    <div className="relative">
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="name@example.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="h-11 pl-10 rounded-xl focus-visible:ring-primary"
+                        required
+                      />
+                      <Mail className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    </div>
+                  </FieldContent>
+                </Field>
 
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="At least 8 characters"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="h-11 pl-10 pr-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-                      required
-                    />
-                    <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                <Field>
+                  <FieldLabel htmlFor="password">Password</FieldLabel>
+                  <FieldContent>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="At least 8 characters"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="h-11 pl-10 pr-10 rounded-xl focus-visible:ring-primary"
+                        required
+                      />
+                      <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </FieldContent>
+                </Field>
 
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm password</Label>
-                  <div className="relative">
-                    <Input
-                      id="confirm-password"
-                      type={showConfirmPassword ? "text" : "password"}
-                      placeholder="Re-enter your password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="h-11 pl-10 pr-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-                      required
-                    />
-                    <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword((v) => !v)}
-                      aria-label={
-                        showConfirmPassword ? "Hide password" : "Show password"
-                      }
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                    >
-                      {showConfirmPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                <Field>
+                  <FieldLabel htmlFor="confirm-password">
+                    Confirm password
+                  </FieldLabel>
+                  <FieldContent>
+                    <div className="relative">
+                      <Input
+                        id="confirm-password"
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="Re-enter your password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="h-11 pl-10 pr-10 rounded-xl focus-visible:ring-primary"
+                        required
+                      />
+                      <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setShowConfirmPassword((v) => !v)}
+                        aria-label={
+                          showConfirmPassword ? "Hide password" : "Show password"
+                        }
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </FieldContent>
+                </Field>
 
                 <Button
                   type="submit"
@@ -414,30 +408,33 @@ export default function SignupPage() {
               </div>
 
               <form onSubmit={handleVerify} className="space-y-5">
-                <div className="flex justify-center gap-2">
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <Input
-                      key={index}
-                      ref={(node) => {
-                        otpRefs.current[index] = node;
+                <Field>
+                  <FieldContent>
+                    <InputOTP
+                      maxLength={6}
+                      value={code}
+                      onChange={(value) => {
+                        setCode(value);
+                        setOtpError("");
                       }}
-                      type="text"
                       inputMode="numeric"
                       autoComplete="one-time-code"
-                      maxLength={6}
-                      value={code[index] ?? ""}
-                      onChange={(e) => handleOtpChange(index, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                      onPaste={handleOtpPaste}
-                      aria-label={`Digit ${index + 1}`}
-                      className="h-12 w-11 sm:w-12 rounded-xl border-border bg-white text-center text-lg font-bold focus-visible:ring-primary"
-                    />
-                  ))}
-                </div>
+                      containerClassName="justify-center"
+                    >
+                      <InputOTPGroup>
+                        {Array.from({ length: 6 }, (_, index) => (
+                          <InputOTPSlot
+                            key={index}
+                            index={index}
+                            className="h-12 w-11 sm:w-12 bg-background text-lg font-bold"
+                          />
+                        ))}
+                      </InputOTPGroup>
+                    </InputOTP>
+                  </FieldContent>
+                </Field>
 
-                {otpError ? (
-                  <p className="text-center text-sm text-destructive">{otpError}</p>
-                ) : null}
+                <FieldError className="text-center">{otpError}</FieldError>
 
                 <Button
                   type="submit"

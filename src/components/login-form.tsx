@@ -7,11 +7,12 @@ import { toast } from "sonner";
 import { Mail, Lock, Sparkles, Heart, Star, Loader2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
+import { resolveDefaultLanding } from "@/lib/settings";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -53,6 +54,16 @@ export default function LoginPage() {
     }
 
     toast.success("Signed in successfully!");
+    if (next === "/") {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        router.push(await resolveDefaultLanding(supabase, user, next));
+        router.refresh();
+        return;
+      }
+    }
     router.push(next);
     router.refresh();
   };
@@ -99,7 +110,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen w-full flex bg-background">
       {/* Left Column: Brand, Form & OAuth */}
-      <div className="w-full lg:w-1/2 flex flex-col justify-between p-6 sm:p-12 lg:p-16 bg-white">
+      <div className="w-full lg:w-1/2 flex flex-col justify-between p-6 sm:p-12 lg:p-16 bg-background">
         {/* Brand Header */}
         <div className="flex items-center gap-2.5">
           <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center text-white shadow-xs">
@@ -123,7 +134,7 @@ export default function LoginPage() {
           <div className="space-y-3">
             <Button
               variant="outline"
-              className="w-full h-11 border-border justify-center font-medium hover:bg-slate-50 rounded-xl"
+              className="w-full h-11 justify-center font-medium rounded-xl"
               disabled={loading !== null}
               onClick={handleGoogleLogin}
             >
@@ -154,7 +165,7 @@ export default function LoginPage() {
 
             <Button
               variant="outline"
-              className="w-full h-11 border-border justify-center font-medium hover:bg-slate-50 rounded-xl"
+              className="w-full h-11 justify-center font-medium rounded-xl"
               disabled={loading !== null}
               onClick={handleMagicLink}
             >
@@ -170,32 +181,34 @@ export default function LoginPage() {
           {/* Separator */}
           <div className="relative flex items-center justify-center">
             <Separator className="w-full" />
-            <span className="absolute bg-white px-3 text-xs text-muted-foreground uppercase font-medium">
+            <span className="absolute bg-background px-3 text-xs text-muted-foreground uppercase font-medium">
               Or sign in with email
             </span>
           </div>
 
           {/* Manual Login Form */}
           <form onSubmit={handlePasswordLogin} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email address</Label>
-              <div className="relative">
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-11 pl-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-                  required
-                />
-                <Mail className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              </div>
-            </div>
+            <Field>
+              <FieldLabel htmlFor="email">Email address</FieldLabel>
+              <FieldContent>
+                <div className="relative">
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="name@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="h-11 pl-10 rounded-xl focus-visible:ring-primary"
+                    required
+                  />
+                  <Mail className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                </div>
+              </FieldContent>
+            </Field>
 
-            <div className="space-y-2">
+            <Field>
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
+                <FieldLabel htmlFor="login-password">Password</FieldLabel>
                 <Link
                   href="/forgot-password"
                   className="text-xs text-primary font-medium hover:underline"
@@ -203,31 +216,35 @@ export default function LoginPage() {
                   Forgot password?
                 </Link>
               </div>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-11 pl-10 pr-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-                  required
-                />
-                <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
-            </div>
+              <FieldContent>
+                <div className="relative">
+                  <Input
+                    id="login-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-11 pl-10 pr-10 rounded-xl focus-visible:ring-primary"
+                    required
+                  />
+                  <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </FieldContent>
+            </Field>
 
             <Button
               type="submit"
@@ -270,7 +287,7 @@ export default function LoginPage() {
         {/* Floating Mockup Illustration */}
         <div className="relative w-full max-w-lg space-y-4">
           {/* Main Card */}
-          <Card className="border border-primary/20 shadow-xl bg-white/90 backdrop-blur-sm rounded-2xl overflow-hidden p-6 space-y-4">
+          <Card className="shadow-xl bg-white/90 backdrop-blur-sm overflow-hidden p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
                 <Heart className="h-5 w-5 fill-primary" />
@@ -283,7 +300,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="space-y-2 bg-slate-50 p-3.5 rounded-xl border border-border/50 text-xs text-foreground/80">
+            <div className="space-y-2 bg-muted/50 p-3.5 rounded-xl border border-border/50 text-xs text-foreground/80">
               <p>
                 &ldquo;The product quality is outstanding! Fast shipping and
                 excellent support.&rdquo;

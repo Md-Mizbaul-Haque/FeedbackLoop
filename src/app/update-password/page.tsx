@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
 
@@ -77,7 +77,7 @@ export default function UpdatePasswordPage() {
 
   if (checking) {
     return wrapper(
-      <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm flex items-center justify-center py-12">
+      <div className="rounded-xl border border-border bg-card p-6 sm:p-8 flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>,
     );
@@ -85,7 +85,7 @@ export default function UpdatePasswordPage() {
 
   if (!hasSession) {
     return wrapper(
-      <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm space-y-4">
+      <div className="rounded-xl border border-border bg-card p-6 sm:p-8 space-y-4">
         <h1 className="text-2xl font-bold tracking-tight text-center">
           Link invalid or expired
         </h1>
@@ -117,7 +117,7 @@ export default function UpdatePasswordPage() {
 
   if (done) {
     return wrapper(
-      <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm space-y-4">
+      <div className="rounded-xl border border-border bg-card p-6 sm:p-8 space-y-4">
         <div className="flex flex-col items-center gap-3 pt-2">
           <div className="h-12 w-12 rounded-full bg-emerald-50 flex items-center justify-center">
             <CheckCircle2 className="h-7 w-7 text-emerald-600" />
@@ -142,7 +142,7 @@ export default function UpdatePasswordPage() {
   }
 
   return wrapper(
-    <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm space-y-6">
+    <div className="rounded-xl border border-border bg-card p-6 sm:p-8 space-y-6">
       <div className="space-y-1.5 text-center">
         <h1 className="text-2xl font-bold tracking-tight">Set a new password</h1>
         <p className="text-sm text-muted-foreground">
@@ -151,51 +151,57 @@ export default function UpdatePasswordPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="password">New password</Label>
-          <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="h-11 pl-10 pr-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-              required
-              minLength={8}
-            />
-            <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            >
-              {showPassword ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </button>
-          </div>
-        </div>
+        <Field>
+          <FieldLabel htmlFor="password">New password</FieldLabel>
+          <FieldContent>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="h-11 pl-10 pr-10 rounded-xl focus-visible:ring-primary"
+                required
+                minLength={8}
+              />
+              <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-foreground"
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </FieldContent>
+        </Field>
 
-        <div className="space-y-2">
-          <Label htmlFor="confirm-password">Confirm password</Label>
-          <div className="relative">
-            <Input
-              id="confirm-password"
-              type={showPassword ? "text" : "password"}
-              placeholder="••••••••"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="h-11 pl-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-              required
-              minLength={8}
-            />
-            <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          </div>
-        </div>
+        <Field>
+          <FieldLabel htmlFor="confirm-password">Confirm password</FieldLabel>
+          <FieldContent>
+            <div className="relative">
+              <Input
+                id="confirm-password"
+                type={showPassword ? "text" : "password"}
+                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="h-11 pl-10 rounded-xl focus-visible:ring-primary"
+                required
+                minLength={8}
+              />
+              <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            </div>
+          </FieldContent>
+        </Field>
 
         <p className="text-xs text-muted-foreground">
           Password must be at least 8 characters long.

@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Mail, Sparkles, Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
 
@@ -43,7 +43,7 @@ export default function ForgotPasswordPage() {
           <span className="font-bold text-xl tracking-tight">FeedbackLoop</span>
         </div>
 
-        <div className="rounded-2xl border border-border bg-white p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="rounded-xl border border-border bg-card p-6 sm:p-8 space-y-6">
           <div className="space-y-1.5 text-center">
             <h1 className="text-2xl font-bold tracking-tight">
               Reset your password
@@ -54,21 +54,23 @@ export default function ForgotPasswordPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email address</Label>
-              <div className="relative">
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-11 pl-10 rounded-xl border-border bg-white focus-visible:ring-primary"
-                  required
-                />
-                <Mail className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              </div>
-            </div>
+            <Field>
+              <FieldLabel htmlFor="email">Email address</FieldLabel>
+              <FieldContent>
+                <div className="relative">
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="name@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="h-11 pl-10 rounded-xl focus-visible:ring-primary"
+                    required
+                  />
+                  <Mail className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                </div>
+              </FieldContent>
+            </Field>
 
             <Button
               type="submit"

@@ -73,7 +73,7 @@ export function LatestResult() {
 
   if (!summary) {
     return (
-      <Card className="border border-border shadow-sm rounded-xl">
+      <Card>
         <CardContent className="p-8 text-center space-y-4">
           <p className="text-muted-foreground text-sm">
             No summary selected. Generate a new summary to see your results.

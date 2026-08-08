@@ -1,4 +1,7 @@
-import { Sidebar } from "@/components/sideBar";
+"use client";
+
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
 import { Header } from "@/components/header";
 
 export function AppShell({
@@ -9,14 +12,12 @@ export function AppShell({
   showHeader?: boolean;
 }) {
   return (
-    <div className="flex h-screen overflow-hidden">
-      <div className="hidden md:block h-full">
-        <Sidebar />
-      </div>
-      <div className="flex-1 flex flex-col overflow-y-auto">
+    <SidebarProvider>
+      <AppSidebar />
+      <div className="flex min-w-0 flex-1 flex-col">
         {showHeader && <Header />}
         <main className="flex-1 p-6 md:p-8">{children}</main>
       </div>
-    </div>
+    </SidebarProvider>
   );
 }

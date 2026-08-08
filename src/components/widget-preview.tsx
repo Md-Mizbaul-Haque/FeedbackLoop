@@ -25,7 +25,7 @@ export function WidgetPreview({ items = defaultItems }: { items?: string[] }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
         {/* Light Theme Widget */}
-        <Card className="border border-border shadow-xs bg-white rounded-xl overflow-hidden">
+        <Card className="bg-white overflow-hidden">
           <CardContent className="p-6 space-y-4">
             <h3 className="text-sm font-bold text-center text-foreground">
               What customers love
@@ -51,7 +51,7 @@ export function WidgetPreview({ items = defaultItems }: { items?: string[] }) {
         </Card>
 
         {/* Dark Theme Widget */}
-        <Card className="border border-slate-800 shadow-xs bg-[#12161f] text-white rounded-xl overflow-hidden">
+        <Card className="border border-slate-800 bg-[#12161f] text-white overflow-hidden ring-0">
           <CardContent className="p-6 space-y-4">
             <h3 className="text-sm font-bold text-center text-white">
               What customers love

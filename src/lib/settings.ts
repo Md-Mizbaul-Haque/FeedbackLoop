@@ -4,10 +4,6 @@ export const SETTINGS_KEY = "feedbackloop-settings";
 
 export const DEFAULT_SETTINGS = {
   defaultView: "dashboard" as "dashboard" | "summaries",
-  language: "en",
-  emailNotifications: true,
-  productUpdates: true,
-  weeklyDigest: false,
 };
 
 export type UserSettings = typeof DEFAULT_SETTINGS;
@@ -80,4 +76,13 @@ export async function saveUserSettings(
     { onConflict: "user_id" },
   );
   return { error: error ? error.message : null };
+}
+
+export async function resolveDefaultLanding(
+  supabase: SupabaseClient,
+  user: User,
+  fallback: string,
+): Promise<string> {
+  const settings = await fetchUserSettings(supabase, user);
+  return settings.defaultView === "summaries" ? "/summaries" : fallback;
 }

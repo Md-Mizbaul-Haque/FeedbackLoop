@@ -31,7 +31,7 @@ export default async function ResultsPage({
 
   if (!summary) {
     return (
-      <Card className="border border-border shadow-sm rounded-xl">
+      <Card>
         <CardContent className="p-8 text-center space-y-4">
           <p className="text-muted-foreground text-sm">
             This summary could not be found or you don&apos;t have access to it.

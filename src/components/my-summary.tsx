@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -222,7 +223,7 @@ export function MySummaries() {
       </div>
 
       {/* Main Container Card */}
-      <Card className="border border-border shadow-xs rounded-xl">
+      <Card>
         <CardContent className="p-6 space-y-6">
           {/* Controls Bar: Search & Filter */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -233,12 +234,12 @@ export function MySummaries() {
                 placeholder="Search summaries..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 h-10 bg-white border-border rounded-lg text-sm"
+                className="pl-9 h-10 rounded-lg text-sm"
               />
             </div>
 
             <Select defaultValue="all">
-              <SelectTrigger className="w-full sm:w-36 h-10 border-border bg-white text-sm">
+              <SelectTrigger className="w-full sm:w-36 h-10 text-sm">
                 <SelectValue placeholder="All Time" />
               </SelectTrigger>
               <SelectContent>
@@ -253,7 +254,7 @@ export function MySummaries() {
           {/* Summaries Table */}
           <div className="rounded-lg border border-border/60 overflow-hidden">
             <Table>
-              <TableHeader className="bg-slate-50/50">
+              <TableHeader className="bg-muted/50">
                 <TableRow className="hover:bg-transparent border-border">
                   <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wider py-3.5">
                     TITLE
@@ -272,19 +273,35 @@ export function MySummaries() {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="text-center py-8 text-muted-foreground text-sm"
-                    >
-                      Loading summaries...
-                    </TableCell>
-                  </TableRow>
+                  <>
+                    {Array.from({ length: 4 }, (_, rowIndex) => (
+                      <TableRow key={rowIndex} className="border-border">
+                        <TableCell className="py-4">
+                          <Skeleton className="h-5 w-2/3 max-w-64" />
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-4 w-20" />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1.5">
+                            <Skeleton className="h-5 w-16" />
+                            <Skeleton className="h-5 w-20" />
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Skeleton className="h-4 w-24" />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Skeleton className="ml-auto h-8 w-8" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </>
                 ) : filteredSummaries.length > 0 ? (
                   filteredSummaries.map((summary) => (
                     <TableRow
                       key={summary.id}
-                      className="hover:bg-slate-50/60 border-border"
+                      className="hover:bg-muted/50"
                     >
                       <TableCell className="font-semibold text-sm text-foreground py-4">
                         {summary.title}

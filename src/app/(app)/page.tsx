@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { UploadCloud, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
@@ -15,7 +15,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
-import { fetchUserSettings } from "@/lib/settings";
 import {
   columnLabel,
   columnValues,
@@ -50,25 +49,6 @@ export default function CreateSummaryPage() {
 
   const reviewCount = reviews.trim() ? reviews.trim().split("\n").filter(Boolean).length : 0;
   const characterCount = reviews.length;
-
-  useEffect(() => {
-    const supabase = createClient();
-    let cancelled = false;
-
-    supabase.auth.getUser().then(({ data }) => {
-      if (cancelled || !data.user) return;
-      fetchUserSettings(supabase, data.user).then((settings) => {
-        if (cancelled) return;
-        if (settings.defaultView === "summaries") {
-          router.replace("/summaries");
-        }
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
 
   const handleClear = () => {
     setReviews("");
@@ -208,18 +188,31 @@ export default function CreateSummaryPage() {
           typeof crypto !== "undefined" && "randomUUID" in crypto
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        created_at: new Date().toISOString(),
       };
 
-      sessionStorage.setItem(
-        "feedbackloop:latest-summary",
-        JSON.stringify(summary),
-      );
+      const { data: saved, error: saveError } = await supabase
+        .from("summaries")
+        .insert(summary)
+        .select("id")
+        .single();
+
+      if (saveError) {
+        console.error("Failed to save summary:", saveError);
+        sessionStorage.setItem(
+          "feedbackloop:latest-summary",
+          JSON.stringify(summary),
+        );
+        toast.success(
+          `Summary generated from ${reviewsList.length} reviews, but couldn't be saved to your account.`,
+        );
+        router.push("/results");
+        return;
+      }
 
       toast.success(
         `Summary generated from ${reviewsList.length} reviews!`,
       );
-      router.push("/results");
+      router.push(`/results?id=${saved.id}`);
     } catch (err) {
       console.error(err);
       toast.error("AI analysis failed. Please try again.");
@@ -239,7 +232,7 @@ export default function CreateSummaryPage() {
       </div>
 
       {/* Main Container Card */}
-      <Card className="border border-border shadow-sm rounded-xl">
+      <Card>
         <CardContent className="p-6 md:p-8 space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
@@ -255,7 +248,7 @@ export default function CreateSummaryPage() {
                   value={reviews}
                   onChange={(e) => setReviews(e.target.value)}
                   placeholder="Paste your reviews here..."
-                  className="h-[280px] min-h-0 p-4 text-sm font-normal resize-none overflow-y-auto focus-visible:ring-primary border-border bg-white rounded-xl"
+                  className="h-[280px] min-h-0 p-4 text-sm font-normal resize-none overflow-y-auto focus-visible:ring-primary rounded-xl"
                 />
                 
                 {/* Meta Info Footer inside Textarea space */}
@@ -320,7 +313,7 @@ export default function CreateSummaryPage() {
                     e.target.value = "";
                   }}
                 />
-                <div className="h-10 w-10 rounded-full bg-white flex items-center justify-center shadow-xs text-primary mb-3">
+                <div className="h-10 w-10 rounded-full bg-card flex items-center justify-center shadow-xs text-primary mb-3">
                   <UploadCloud className="h-5 w-5" />
                 </div>
                 <p className="text-xs font-medium text-foreground">
@@ -345,7 +338,7 @@ export default function CreateSummaryPage() {
                       if (csvRows && value) applyColumn(csvRows, Number(value));
                     }}
                   >
-                    <SelectTrigger className="w-full h-9 border-border bg-white text-sm">
+                    <SelectTrigger className="w-full h-9 text-sm">
                       <SelectValue placeholder="Select a column" />
                     </SelectTrigger>
                     <SelectContent>
@@ -381,7 +374,7 @@ export default function CreateSummaryPage() {
           <div className="pt-2">
             <Button 
               size="lg" 
-              className="w-full bg-primary hover:bg-primary/90 text-white font-medium h-12 rounded-xl text-sm transition-all shadow-sm"
+              className="w-full bg-primary hover:bg-primary/90 text-white font-medium h-12 rounded-xl text-sm transition-all shadow-xs"
               onClick={handleGenerate}
               disabled={isGenerating}
             >

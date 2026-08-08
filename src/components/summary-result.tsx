@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface SummaryKeyword {
   label: string;
@@ -154,12 +155,19 @@ export function SummaryResults({
                   <p className="truncate text-xs text-muted-foreground">
                     {stat.label}
                     {stat.estimated ? (
-                      <span
-                        className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
-                        title="AI-estimated from review sentiment, not a reported score"
-                      >
-                        AI est.
-                      </span>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              AI est.
+                            </span>
+                          }
+                        />
+                        <TooltipContent>
+                          AI-estimated from review sentiment, not a reported
+                          score
+                        </TooltipContent>
+                      </Tooltip>
                     ) : null}
                   </p>
                 </div>
@@ -261,18 +269,27 @@ export function SummaryResults({
                   <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
                     Embed HTML
                   </span>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    aria-label="Copy embed code"
-                    className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    {copied ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          onClick={handleCopy}
+                          aria-label="Copy embed code"
+                          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        >
+                          {copied ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      }
+                    />
+                    <TooltipContent>
+                      {copied ? "Copied!" : "Copy embed code"}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
 
                 <div className="overflow-x-auto p-4 font-mono text-xs leading-relaxed">
@@ -332,7 +349,7 @@ export function SummaryResults({
 
       {/* Source Reviews */}
       {summary.reviews ? (
-        <Card className="border border-border shadow-xs rounded-xl">
+        <Card>
           <CardContent className="p-6">
             <button
               type="button"
@@ -363,7 +380,7 @@ export function SummaryResults({
                   .map((review, index) => (
                     <li
                       key={index}
-                      className="flex items-start gap-3 rounded-lg bg-white p-3 text-sm text-foreground/90 border border-border/60"
+                      className="flex items-start gap-3 rounded-lg bg-card p-3 text-sm text-foreground/90 border border-border/60"
                     >
                       <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-bold text-primary">
                         {index + 1}
