@@ -32,6 +32,8 @@ const CODE_MESSAGES: Record<string, string> = {
     "That code is invalid or has expired. Please try again.",
   user_not_found:
     "No account found with this email. Please sign up first.",
+  valid_last_sign_in_at:
+    "For security, you can only set a password shortly after signing in. Sign out and sign back in, then try again.",
   over_email_send_rate_limit:
     "You're sending requests too quickly. Please wait a moment and try again.",
   over_request_rate_limit:
@@ -56,6 +58,9 @@ export function friendlyAuthMessage(error: AuthErrorLike | null): string {
     message.includes("invalid credentials")
   ) {
     return CODE_MESSAGES.invalid_credentials;
+  }
+  if (message.includes("security purposes")) {
+    return CODE_MESSAGES.valid_last_sign_in_at;
   }
   if (
     message.includes("failed to fetch") ||

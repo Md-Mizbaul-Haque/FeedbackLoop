@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import {
   Calendar,
   Loader2,
+  Lock,
   Mail,
+  Eye,
+  EyeOff,
   ShieldCheck,
   User as UserIcon,
 } from "lucide-react";
@@ -44,6 +47,10 @@ export default function ProfilePage() {
   const [fullName, setFullName] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [settingPassword, setSettingPassword] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -112,6 +119,47 @@ export default function ProfilePage() {
     }
 
     toast.success("Profile updated successfully!");
+  };
+
+  const hasEmailIdentity =
+    user?.identities?.some((identity) => identity.provider === "email") ?? false;
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters long.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    const alreadyHadPassword = hasEmailIdentity;
+    setSettingPassword(true);
+
+    const supabase = createClient();
+    const { data, error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    setSettingPassword(false);
+
+    if (error) {
+      toast.error(friendlyAuthMessage(error));
+      return;
+    }
+
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+    if (data.user) setUser(data.user);
+
+    toast.success(
+      alreadyHadPassword
+        ? "Password updated successfully!"
+        : "Password set! You can now sign in with your email and password.",
+    );
   };
 
   const provider = (user?.app_metadata?.provider as string) ?? "email";
@@ -258,6 +306,89 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Password Card */}
+      <Card className="border border-border shadow-xs rounded-xl mt-6">
+        <CardContent className="p-6 md:p-8 space-y-6">
+          <div>
+            <h2 className="text-lg font-bold tracking-tight">
+              {hasEmailIdentity ? "Change Password" : "Set a Password"}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {hasEmailIdentity
+                ? "Update the password used to sign in to your account."
+                : "You signed up with Google. Set a password to also sign in with your email and password."}
+            </p>
+          </div>
+
+          <form onSubmit={handlePasswordSubmit} className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New password</Label>
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="h-10 pl-10 pr-10 bg-white border-border rounded-lg text-sm"
+                    required
+                    minLength={8}
+                  />
+                  <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirm password</Label>
+                <div className="relative">
+                  <Input
+                    id="confirm-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="h-10 pl-10 pr-10 bg-white border-border rounded-lg text-sm"
+                    required
+                    minLength={8}
+                  />
+                  <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground -mt-2">
+              Password must be at least 8 characters long.
+            </p>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                type="submit"
+                disabled={settingPassword}
+                className="bg-primary hover:bg-primary/90 text-white font-medium shadow-xs px-6 h-10"
+              >
+                {settingPassword ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                {hasEmailIdentity ? "Update Password" : "Set Password"}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }
