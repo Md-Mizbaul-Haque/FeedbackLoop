@@ -3,7 +3,17 @@
 import { Truck, ShieldCheck, MessageSquare, CheckCircle2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
-export function WidgetPreview() {
+const defaultItems = [
+  "Fast and reliable shipping",
+  "High quality products",
+  "Excellent customer support",
+];
+
+const icons = [Truck, ShieldCheck, MessageSquare];
+
+export function WidgetPreview({ items = defaultItems }: { items?: string[] }) {
+  const listItems = items.length > 0 ? items.slice(0, 3) : defaultItems;
+
   return (
     <div className="space-y-4">
       {/* Title */}
@@ -22,18 +32,15 @@ export function WidgetPreview() {
             </h3>
 
             <ul className="space-y-3 text-xs text-foreground/80 font-medium">
-              <li className="flex items-center gap-2.5">
-                <Truck className="h-4 w-4 text-primary shrink-0" />
-                <span>Fast and reliable shipping</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <ShieldCheck className="h-4 w-4 text-primary shrink-0" />
-                <span>High quality products</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <MessageSquare className="h-4 w-4 text-primary shrink-0" />
-                <span>Excellent customer support</span>
-              </li>
+              {listItems.map((item, index) => {
+                const Icon = icons[index % icons.length];
+                return (
+                  <li key={index} className="flex items-center gap-2.5">
+                    <Icon className="h-4 w-4 text-primary shrink-0" />
+                    <span>{item}</span>
+                  </li>
+                );
+              })}
             </ul>
 
             <div className="pt-3 border-t border-border flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
@@ -51,18 +58,12 @@ export function WidgetPreview() {
             </h3>
 
             <ul className="space-y-3 text-xs text-slate-200 font-medium">
-              <li className="flex items-center gap-2.5">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 fill-emerald-400/20 shrink-0" />
-                <span>Fast and reliable shipping</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 fill-emerald-400/20 shrink-0" />
-                <span>High quality products</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400 fill-emerald-400/20 shrink-0" />
-                <span>Excellent customer support</span>
-              </li>
+              {listItems.map((item, index) => (
+                <li key={index} className="flex items-center gap-2.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 fill-emerald-400/20 shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
             </ul>
 
             <div className="pt-3 border-t border-slate-800/80 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Search,
   Plus,
@@ -9,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,6 +36,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { createClient } from "@/lib/supabase/client";
 
 interface SummaryItem {
   id: string;
@@ -43,113 +46,146 @@ interface SummaryItem {
   createdAt: string;
 }
 
-const summariesData: SummaryItem[] = [
-  {
-    id: "1",
-    title: "Awesome Headphones Reviews",
-    reviewsCount: 34,
-    createdAt: "Aug 8, 2025",
-    keywords: [
-      {
-        label: "High Quality",
-        colorClass: "bg-orange-50 text-orange-600 border-orange-200",
-      },
-      {
-        label: "Great Sound",
-        colorClass: "bg-rose-50 text-rose-600 border-rose-200",
-      },
-      {
-        label: "Comfortable",
-        colorClass: "bg-purple-50 text-purple-600 border-purple-200",
-      },
-    ],
-  },
-  {
-    id: "2",
-    title: "Coffee Shop Feedback",
-    reviewsCount: 28,
-    createdAt: "Aug 7, 2025",
-    keywords: [
-      {
-        label: "Great Coffee",
-        colorClass: "bg-amber-50 text-amber-600 border-amber-200",
-      },
-      {
-        label: "Cozy Atmosphere",
-        colorClass: "bg-emerald-50 text-emerald-600 border-emerald-200",
-      },
-      {
-        label: "Friendly Staff",
-        colorClass: "bg-sky-50 text-sky-600 border-sky-200",
-      },
-    ],
-  },
-  {
-    id: "3",
-    title: "Online Store Reviews",
-    reviewsCount: 41,
-    createdAt: "Aug 6, 2025",
-    keywords: [
-      {
-        label: "Fast Shipping",
-        colorClass: "bg-purple-50 text-purple-600 border-purple-200",
-      },
-      {
-        label: "Great Support",
-        colorClass: "bg-emerald-50 text-emerald-600 border-emerald-200",
-      },
-      {
-        label: "Good Value",
-        colorClass: "bg-indigo-50 text-indigo-600 border-indigo-200",
-      },
-    ],
-  },
-  {
-    id: "4",
-    title: "Fitness App Feedback",
-    reviewsCount: 22,
-    createdAt: "Aug 5, 2025",
-    keywords: [
-      {
-        label: "Easy to Use",
-        colorClass: "bg-sky-50 text-sky-600 border-sky-200",
-      },
-      {
-        label: "Great Workouts",
-        colorClass: "bg-rose-50 text-rose-600 border-rose-200",
-      },
-      {
-        label: "Motivating",
-        colorClass: "bg-purple-50 text-purple-600 border-purple-200",
-      },
-    ],
-  },
-  {
-    id: "5",
-    title: "Skincare Product Reviews",
-    reviewsCount: 31,
-    createdAt: "Aug 4, 2025",
-    keywords: [
-      {
-        label: "Effective",
-        colorClass: "bg-indigo-50 text-indigo-600 border-indigo-200",
-      },
-      {
-        label: "Good Quality",
-        colorClass: "bg-orange-50 text-orange-600 border-orange-200",
-      },
-      {
-        label: "Great Packaging",
-        colorClass: "bg-blue-50 text-blue-600 border-blue-200",
-      },
-    ],
-  },
+const colorPalettes = [
+  "bg-orange-50 text-orange-600 border-orange-200",
+  "bg-rose-50 text-rose-600 border-rose-200",
+  "bg-purple-50 text-purple-600 border-purple-200",
+  "bg-amber-50 text-amber-600 border-amber-200",
+  "bg-emerald-50 text-emerald-600 border-emerald-200",
+  "bg-sky-50 text-sky-600 border-sky-200",
+  "bg-indigo-50 text-indigo-600 border-indigo-200",
+  "bg-blue-50 text-blue-600 border-blue-200",
 ];
 
-export function MySummaries() {
-  const [searchQuery, setSearchQuery] = useState("");
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
-  const filteredSummaries = summariesData.filter((item) =>
+function downloadSummary(summary: SummaryItem) {
+  const lines = [
+    summary.title,
+    `${summary.reviewsCount} reviews analyzed`,
+    `Created: ${summary.createdAt}`,
+    "",
+    "Top keywords:",
+    ...summary.keywords.map((kw) => `- ${kw.label}`),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${summary.title.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-")}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function MySummaries() {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [summaries, setSummaries] = useState<SummaryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  const applyRows = useCallback(
+    (rows: { id: string; title: string; reviews_count: number; keywords: { label: string }[]; created_at: string }[], error: { message: string } | null) => {
+      if (error) {
+        console.error(error);
+        toast.error("Failed to load summaries.");
+      }
+      setSummaries(
+        (rows ?? []).map((row) => ({
+          id: row.id,
+          title: row.title,
+          reviewsCount: row.reviews_count,
+          keywords: (row.keywords ?? []).map(
+            (kw, index) => ({
+              label: kw.label,
+              colorClass: colorPalettes[index % colorPalettes.length],
+            }),
+          ),
+          createdAt: formatDate(row.created_at),
+        })),
+      );
+      setLoading(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+
+    const load = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (cancelled) return;
+
+      if (!user) {
+        setSummaries([]);
+        setSignedIn(false);
+        setLoading(false);
+        return;
+      }
+
+      setSignedIn(true);
+      const { data, error } = await supabase
+        .from("summaries")
+        .select("id, title, reviews_count, keywords, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (cancelled) return;
+      applyRows(data ?? [], error);
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyRows]);
+
+  const reload = useCallback(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) {
+        setSummaries([]);
+        setSignedIn(false);
+        setLoading(false);
+        return;
+      }
+      setSignedIn(true);
+      supabase
+        .from("summaries")
+        .select("id, title, reviews_count, keywords, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .then(({ data, error }) => applyRows(data ?? [], error));
+    });
+  }, [applyRows]);
+
+  const handleDelete = async (summary: SummaryItem) => {
+    if (!window.confirm(`Delete "${summary.title}"? This cannot be undone.`)) {
+      return;
+    }
+    const supabase = createClient();
+    const { error } = await supabase.from("summaries").delete().eq("id", summary.id);
+    if (error) {
+      console.error(error);
+      toast.error("Failed to delete summary.");
+      return;
+    }
+    toast.success("Summary deleted.");
+    reload();
+  };
+
+  const filteredSummaries = summaries.filter((item) =>
     item.title.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
@@ -166,7 +202,10 @@ export function MySummaries() {
           </p>
         </div>
 
-        <Button className="bg-primary hover:bg-primary/90 text-white font-medium shadow-xs">
+        <Button
+          className="bg-primary hover:bg-primary/90 text-white font-medium shadow-xs"
+          onClick={() => router.push("/")}
+        >
           <Plus className="h-4 w-4 mr-2" />
           Create New Summary
         </Button>
@@ -222,7 +261,16 @@ export function MySummaries() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSummaries.length > 0 ? (
+                {loading ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="text-center py-8 text-muted-foreground text-sm"
+                    >
+                      Loading summaries...
+                    </TableCell>
+                  </TableRow>
+                ) : filteredSummaries.length > 0 ? (
                   filteredSummaries.map((summary) => (
                     <TableRow
                       key={summary.id}
@@ -260,6 +308,7 @@ export function MySummaries() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            onClick={() => router.push(`/results?id=${summary.id}`)}
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
@@ -277,11 +326,18 @@ export function MySummaries() {
                               <MoreVertical className="h-4 w-4" />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem>View Details</DropdownMenuItem>
-                              <DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => router.push(`/results?id=${summary.id}`)}
+                              >
+                                View Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => downloadSummary(summary)}>
                                 Export Summary
                               </DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive">
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => handleDelete(summary)}
+                              >
                                 Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -296,7 +352,11 @@ export function MySummaries() {
                       colSpan={5}
                       className="text-center py-8 text-muted-foreground text-sm"
                     >
-                      No summaries found matching your search.
+                      {signedIn === false
+                        ? "Sign in to view your generated summaries."
+                        : searchQuery
+                          ? "No summaries found matching your search."
+                          : "No summaries yet. Generate your first summary to get started!"}
                     </TableCell>
                   </TableRow>
                 )}

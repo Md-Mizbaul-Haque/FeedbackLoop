@@ -10,53 +10,79 @@ import {
   Sparkles,
   Heart,
   ShieldCheck,
-  Save,
   Plus,
   MessageSquareText,
   ThumbsUp,
   Star,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-const stats = [
-  {
-    label: "Reviews Analyzed",
-    value: "10",
-    icon: MessageSquareText,
-    chipClasses: "bg-primary/10 text-primary",
-  },
-  {
-    label: "Positive Sentiment",
-    value: "92%",
-    icon: ThumbsUp,
-    chipClasses: "bg-emerald-500/10 text-emerald-600",
-  },
-  {
-    label: "Average Rating",
-    value: "4.8 / 5",
-    icon: Star,
-    chipClasses: "bg-amber-500/10 text-amber-600",
-  },
-];
+export interface SummaryKeyword {
+  label: string;
+  count: number;
+}
 
-const summaryPoints = [
-  "Customers love the fast and reliable shipping. Experience is consistently smooth.",
-  "Product quality exceeds expectations, and customers find it great value for money.",
-  "Customer support is highly responsive, friendly, and goes above and beyond.",
-];
+export interface Summary {
+  id: string;
+  title: string;
+  reviews_count: number;
+  keywords: SummaryKeyword[];
+  summary_points: string[];
+  positive_sentiment_pct: number | null;
+  average_rating: number | null;
+  widget_id: string;
+  reviews?: string | null;
+  created_at: string;
+}
 
-const keywords = [
-  { label: "Fast Shipping", count: 32, width: "100%" },
-  { label: "Great Support", count: 28, width: "87.5%" },
-  { label: "High Quality", count: 26, width: "81%" },
-];
-
-const snippetCode = `<div id="feedbackloop-widget" data-id="fb12345"></div>\n<script src="https://cdn.feedbackloop.app/widget.js" async></script>`;
-
-export function SummaryResults() {
+export function SummaryResults({ summary }: { summary: Summary }) {
   const [copied, setCopied] = useState(false);
+  const [showReviews, setShowReviews] = useState(false);
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+
+  const snippetCode = `<div id="feedbackloop-widget" data-id="${summary.widget_id}"></div>\n<script src="${origin}/widget.js" async></script>`;
+
+  const stats = [
+    {
+      label: "Reviews Analyzed",
+      value: String(summary.reviews_count),
+      icon: MessageSquareText,
+      chipClasses: "bg-primary/10 text-primary",
+      estimated: false,
+    },
+    ...(summary.positive_sentiment_pct != null
+      ? [
+          {
+            label: "Positive Sentiment",
+            value: `${summary.positive_sentiment_pct}%`,
+            icon: ThumbsUp,
+            chipClasses: "bg-emerald-500/10 text-emerald-600",
+            estimated: true,
+          },
+        ]
+      : []),
+    ...(summary.average_rating != null
+      ? [
+          {
+            label: "Estimated Rating",
+            value: `${summary.average_rating} / 5`,
+            icon: Star,
+            chipClasses: "bg-amber-500/10 text-amber-600",
+            estimated: true,
+          },
+        ]
+      : []),
+  ];
+
+  const maxKeywordCount = Math.max(1, ...summary.keywords.map((k) => k.count));
+  const keywords = summary.keywords.map((keyword) => ({
+    ...keyword,
+    width: `${Math.round((keyword.count / maxKeywordCount) * 100)}%`,
+  }));
 
   const handleCopy = () => {
     navigator.clipboard.writeText(snippetCode);
@@ -70,7 +96,7 @@ export function SummaryResults() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-            Summary Results
+            {summary.title}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Here&apos;s what your customers are saying!
@@ -78,13 +104,6 @@ export function SummaryResults() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="outline"
-            className="border-primary/20 text-primary hover:bg-secondary"
-          >
-            <Save />
-            Save Summary
-          </Button>
           <Button
             variant="outline"
             className="border-border"
@@ -115,6 +134,14 @@ export function SummaryResults() {
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {stat.label}
+                    {stat.estimated ? (
+                      <span
+                        className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+                        title="AI-estimated from review sentiment, not a reported score"
+                      >
+                        AI est.
+                      </span>
+                    ) : null}
                   </p>
                 </div>
               </CardContent>
@@ -139,7 +166,7 @@ export function SummaryResults() {
               </div>
 
               <div className="space-y-3">
-                {summaryPoints.map((point, index) => (
+                {summary.summary_points.map((point, index) => (
                   <div
                     key={index}
                     className="flex items-start gap-3 rounded-xl border border-border/70 bg-secondary/40 p-4"
@@ -237,12 +264,14 @@ export function SummaryResults() {
                       &quot;feedbackloop-widget&quot;
                     </span>
                     <span className="text-sky-300"> data-id</span>=
-                    <span className="text-emerald-300">&quot;fb12345&quot;</span>
+                    <span className="text-emerald-300">
+                      &quot;{summary.widget_id}&quot;
+                    </span>
                     {`></div>\n`}
                     {`<script `}
-                    <span className="text-sky-300">src</span>=
+                    <span className="text-sky-300"> src</span>=
                     <span className="text-emerald-300">
-                      &quot;https://cdn.feedbackloop.app/widget.js&quot;
+                      &quot;{origin}/widget.js&quot;
                     </span>
                     <span className="text-sky-300"> async</span>
                     {`></script>`}
@@ -263,18 +292,12 @@ export function SummaryResults() {
                   </div>
 
                   <ul className="space-y-2 text-xs text-muted-foreground">
-                    <li className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                      <span>Fast and reliable shipping</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                      <span>High quality products</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                      <span>Excellent customer support</span>
-                    </li>
+                    {keywords.slice(0, 3).map((keyword) => (
+                      <li key={keyword.label} className="flex items-center gap-2">
+                        <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                        <span>{keyword.label}</span>
+                      </li>
+                    ))}
                   </ul>
 
                   <div className="flex items-center gap-1 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
@@ -287,6 +310,53 @@ export function SummaryResults() {
           </Card>
         </div>
       </div>
+
+      {/* Source Reviews */}
+      {summary.reviews ? (
+        <Card className="border border-border shadow-xs rounded-xl">
+          <CardContent className="p-6">
+            <button
+              type="button"
+              onClick={() => setShowReviews((prev) => !prev)}
+              className="flex w-full items-center justify-between gap-3 text-left cursor-pointer"
+              aria-expanded={showReviews}
+            >
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold tracking-tight">
+                  Source Reviews
+                </h2>
+                <Badge variant="secondary">
+                  {summary.reviews.split("\n").filter(Boolean).length} reviews
+                </Badge>
+              </div>
+              <ChevronDown
+                className={`h-4 w-4 text-muted-foreground transition-transform ${
+                  showReviews ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            {showReviews ? (
+              <ol className="mt-4 max-h-96 space-y-2.5 overflow-y-auto rounded-xl border border-border/60 bg-muted/40 p-4">
+                {summary.reviews
+                  .split("\n")
+                  .filter(Boolean)
+                  .map((review, index) => (
+                    <li
+                      key={index}
+                      className="flex items-start gap-3 rounded-lg bg-white p-3 text-sm text-foreground/90 border border-border/60"
+                    >
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-bold text-primary">
+                        {index + 1}
+                      </span>
+                      <span>{review}</span>
+                    </li>
+                  ))}
+              </ol>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

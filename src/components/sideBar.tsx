@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   FileText,
-  PlusCircle,
   User as UserIcon,
   Settings,
   LogOut,
@@ -19,9 +18,8 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
 const navItems = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Home", href: "/", icon: LayoutDashboard },
   { name: "My Summaries", href: "/summaries", icon: FileText },
-  { name: "Create New", href: "/create", icon: PlusCircle },
   { name: "Profile", href: "/profile", icon: UserIcon },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
@@ -73,9 +71,7 @@ export function Sidebar({ onNavClick }: SidebarProps) {
         {/* Navigation Links */}
         <nav className="space-y-1">
           {navItems.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href === "/" && pathname === "/create");
+            const isActive = pathname === item.href;
             const Icon = item.icon;
             return (
               <Link

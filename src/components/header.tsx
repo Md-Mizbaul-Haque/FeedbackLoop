@@ -28,10 +28,6 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
     title: "Summary Results",
     subtitle: "AI-generated insights from your customer feedback",
   },
-  "/create": {
-    title: "Create New Summary",
-    subtitle: "Paste customer reviews and generate AI-powered summaries",
-  },
   "/summaries": {
     title: "My Summaries",
     subtitle: "View and manage your generated summaries",
