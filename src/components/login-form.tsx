@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
+import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,7 +48,7 @@ export default function LoginPage() {
     setLoading(null);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthMessage(error));
       return;
     }
 
@@ -70,7 +71,7 @@ export default function LoginPage() {
     setLoading(null);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthMessage(error));
     }
   };
 
@@ -88,7 +89,7 @@ export default function LoginPage() {
     setLoading(null);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthMessage(error));
       return;
     }
 

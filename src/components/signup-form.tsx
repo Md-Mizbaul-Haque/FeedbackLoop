@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
+import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function SignupPage() {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthMessage(error));
     }
   };
 
@@ -58,7 +59,7 @@ export default function SignupPage() {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthMessage(error));
       return;
     }
 
@@ -92,7 +93,7 @@ export default function SignupPage() {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthMessage(error));
       return;
     }
 

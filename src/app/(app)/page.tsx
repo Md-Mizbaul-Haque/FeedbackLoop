@@ -115,12 +115,17 @@ export default function CreateSummaryPage() {
   const handleGenerate = async () => {
     if (isGenerating) return;
 
-    if (reviewCount < 10) {
-      toast.error(`Please provide at least 10 reviews (you entered ${reviewCount}).`);
+    const reviewsList = reviews
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (reviewsList.length < 10) {
+      toast.error(`Please provide at least 10 reviews (you entered ${reviewsList.length}).`);
       return;
     }
-    if (reviewCount > 50) {
-      toast.error(`Please provide at most 50 reviews (you entered ${reviewCount}).`);
+    if (reviewsList.length > 50) {
+      toast.error(`Please provide at most 50 reviews (you entered ${reviewsList.length}).`);
       return;
     }
 
@@ -138,7 +143,7 @@ export default function CreateSummaryPage() {
     setIsGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke("analyze-summaries", {
-        body: { reviews },
+        body: { reviews: reviewsList },
       });
 
       if (error) {
@@ -156,13 +161,42 @@ export default function CreateSummaryPage() {
         }
         throw error;
       }
-      if (data?.error) {
-        toast.error(data.error);
-        return;
+
+      const result = data?.data as
+        | {
+            title: string;
+            summary_points: string[];
+            keywords: { label: string; count: number }[];
+            positive_sentiment_pct: number | null;
+            average_rating: number | null;
+          }
+        | undefined;
+
+      if (!result) {
+        throw new Error("Empty analysis result.");
       }
 
-      toast.success(`Summary generated from ${data.reviews_count ?? reviewCount} reviews!`);
-      router.push(`/results?id=${data.id}`);
+      const { data: row, error: insertError } = await supabase
+        .from("summaries")
+        .insert({
+          title: result.title,
+          reviews_count: reviewsList.length,
+          keywords: result.keywords,
+          summary_points: result.summary_points,
+          positive_sentiment_pct: result.positive_sentiment_pct ?? 0,
+          average_rating: result.average_rating ?? 0,
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      toast.success(
+        `Summary generated from ${reviewsList.length} reviews!`,
+      );
+      router.push(`/results?id=${row.id}`);
     } catch (err) {
       console.error(err);
       toast.error("AI analysis failed. Please try again.");

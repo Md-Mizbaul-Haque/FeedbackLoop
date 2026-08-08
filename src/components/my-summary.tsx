@@ -36,6 +36,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 
 interface SummaryItem {
@@ -89,6 +97,8 @@ export function MySummaries() {
   const [summaries, setSummaries] = useState<SummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SummaryItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const applyRows = useCallback(
     (rows: { id: string; title: string; reviews_count: number; keywords: { label: string }[]; created_at: string }[], error: { message: string } | null) => {
@@ -171,11 +181,11 @@ export function MySummaries() {
   }, [applyRows]);
 
   const handleDelete = async (summary: SummaryItem) => {
-    if (!window.confirm(`Delete "${summary.title}"? This cannot be undone.`)) {
-      return;
-    }
+    setDeleting(true);
     const supabase = createClient();
     const { error } = await supabase.from("summaries").delete().eq("id", summary.id);
+    setDeleting(false);
+    setDeleteTarget(null);
     if (error) {
       console.error(error);
       toast.error("Failed to delete summary.");
@@ -336,7 +346,7 @@ export function MySummaries() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive"
-                                onClick={() => handleDelete(summary)}
+                                onClick={() => setDeleteTarget(summary)}
                               >
                                 Delete
                               </DropdownMenuItem>
@@ -394,6 +404,40 @@ export function MySummaries() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete summary?</DialogTitle>
+            <DialogDescription>
+              Delete &ldquo;{deleteTarget?.title}&rdquo;? This action cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-border"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => deleteTarget && handleDelete(deleteTarget)}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
