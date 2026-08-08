@@ -7,7 +7,7 @@ import { Mail, Lock, Sparkles, Heart, Star, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/client";
 
@@ -283,8 +283,8 @@ export default function LoginPage() {
 
             <div className="space-y-2 bg-slate-50 p-3.5 rounded-xl border border-border/50 text-xs text-foreground/80">
               <p>
-                "The product quality is outstanding! Fast shipping and
-                excellent support."
+                &ldquo;The product quality is outstanding! Fast shipping and
+                excellent support.&rdquo;
               </p>
             </div>
 

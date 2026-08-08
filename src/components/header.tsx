@@ -82,7 +82,7 @@ export function Header() {
   const initials =
     displayName
       .split(" ")
-      .map((part) => part[0])
+      .map((part: string) => part[0])
       .slice(0, 2)
       .join("")
       .toUpperCase() || "?";
