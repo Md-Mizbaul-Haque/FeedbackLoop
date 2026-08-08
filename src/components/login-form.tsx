@@ -27,13 +27,12 @@ export default function LoginPage() {
     null,
   );
 
-  const supabase = createClient();
-
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading("password");
 
+    const supabase = createClient();
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -54,6 +53,7 @@ export default function LoginPage() {
     setError(null);
     setLoading("google");
 
+    const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -72,6 +72,7 @@ export default function LoginPage() {
     setError(null);
     setLoading("magic");
 
+    const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {

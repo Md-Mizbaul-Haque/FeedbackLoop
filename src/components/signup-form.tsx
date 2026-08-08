@@ -20,12 +20,11 @@ export default function SignupPage() {
   const [checkEmail, setCheckEmail] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
 
-  const supabase = createClient();
-
   const handleGoogleSignup = async () => {
     setError(null);
     setLoading(true);
 
+    const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -50,6 +49,7 @@ export default function SignupPage() {
 
     setLoading(true);
 
+    const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -84,6 +84,7 @@ export default function SignupPage() {
 
     setLoading(true);
 
+    const supabase = createClient();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
