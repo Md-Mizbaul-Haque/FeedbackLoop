@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { UploadCloud, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
+import { fetchUserSettings } from "@/lib/settings";
 import {
   columnLabel,
   columnValues,
@@ -49,6 +50,25 @@ export default function CreateSummaryPage() {
 
   const reviewCount = reviews.trim() ? reviews.trim().split("\n").filter(Boolean).length : 0;
   const characterCount = reviews.length;
+
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (cancelled || !data.user) return;
+      fetchUserSettings(supabase, data.user).then((settings) => {
+        if (cancelled) return;
+        if (settings.defaultView === "summaries") {
+          router.replace("/summaries");
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   const handleClear = () => {
     setReviews("");

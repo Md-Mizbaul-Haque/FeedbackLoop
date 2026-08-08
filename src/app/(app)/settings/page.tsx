@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -15,6 +15,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -23,28 +31,12 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-
-const SETTINGS_KEY = "feedbackloop-settings";
-
-const defaultSettings = {
-  defaultView: "dashboard",
-  language: "en",
-  emailNotifications: true,
-  productUpdates: true,
-  weeklyDigest: false,
-};
-
-type Settings = typeof defaultSettings;
-
-function loadSettings(): Settings {
-  if (typeof window === "undefined") return defaultSettings;
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
-    return raw ? { ...defaultSettings, ...JSON.parse(raw) } : defaultSettings;
-  } catch {
-    return defaultSettings;
-  }
-}
+import {
+  DEFAULT_SETTINGS,
+  fetchUserSettings,
+  saveUserSettings,
+  type UserSettings,
+} from "@/lib/settings";
 
 function Toggle({
   checked,
@@ -79,18 +71,55 @@ function Toggle({
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      // ignore storage errors
-    }
-  }, [settings]);
+    const supabase = createClient();
+    let cancelled = false;
 
-  const update = (patch: Partial<Settings>) => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (cancelled || !data.user) return;
+      fetchUserSettings(supabase, data.user).then((loaded) => {
+        if (cancelled) return;
+        setSettings(loaded);
+        setSettingsLoaded(true);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { error } = await saveUserSettings(supabase, user, settings);
+      if (error) {
+        toast.error(`Could not save settings: ${error}`);
+      }
+    }, 500);
+  }, [settings, settingsLoaded]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, []);
+
+  const update = (patch: Partial<UserSettings>) => {
     setSettings((prev) => ({ ...prev, ...patch }));
   };
 
@@ -103,8 +132,45 @@ export default function SettingsPage() {
     router.refresh();
   };
 
-  const handleDeleteAccount = () => {
-    toast.info("Account deletion isn't available yet.");
+  const handleDeleteAccount = async () => {
+    if (deleting) return;
+    setDeleting(true);
+
+    const supabase = createClient();
+    const { error } = await supabase.functions.invoke("delete-account", {
+      method: "POST",
+    });
+
+    if (error) {
+      setDeleting(false);
+      const ctx = (error as { context?: Response }).context;
+      if (ctx) {
+        try {
+          const body = (await ctx.json()) as { error?: string };
+          if (body?.error) {
+            toast.error(body.error);
+            return;
+          }
+        } catch {
+          // ignore malformed error bodies; fall through to generic error
+        }
+      }
+      toast.error("Could not delete the account. Please try again.");
+      return;
+    }
+
+    await supabase.auth.signOut();
+    try {
+      localStorage.removeItem("feedbackloop-settings");
+      sessionStorage.removeItem("feedbackloop:latest-summary");
+    } catch {
+      // ignore storage errors
+    }
+    setDeleting(false);
+    setDeleteDialogOpen(false);
+    toast.success("Your account and data have been deleted.");
+    router.push("/login");
+    router.refresh();
   };
 
   return (
@@ -127,7 +193,7 @@ export default function SettingsPage() {
             <div>
               <h2 className="font-bold text-base tracking-tight">Preferences</h2>
               <p className="text-xs text-muted-foreground">
-                Choose your default view and language.
+                Choose your default view and language. Saved to your account.
               </p>
             </div>
           </div>
@@ -138,7 +204,7 @@ export default function SettingsPage() {
               <Select
                 value={settings.defaultView}
                 onValueChange={(value) =>
-                  update({ defaultView: value ?? "dashboard" })
+                  update({ defaultView: (value ?? "dashboard") as UserSettings["defaultView"] })
                 }
               >
                 <SelectTrigger className="w-full h-10 border-border bg-white text-sm">
@@ -149,6 +215,9 @@ export default function SettingsPage() {
                   <SelectItem value="summaries">My Summaries</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Where you land after signing in.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -285,13 +354,13 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium text-destructive">Delete account</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Permanently remove your account and all data.
+                Permanently remove your account, summaries, and all data.
               </p>
             </div>
             <Button
               variant="destructive"
               className="shrink-0"
-              onClick={handleDeleteAccount}
+              onClick={() => setDeleteDialogOpen(true)}
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Delete account
@@ -299,6 +368,39 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete your account?</DialogTitle>
+            <DialogDescription>
+              This permanently removes your account, all summaries, and
+              preferences. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete my account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

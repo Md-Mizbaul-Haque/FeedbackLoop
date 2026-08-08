@@ -93,7 +93,7 @@ export default function LoginPage() {
       return;
     }
 
-    toast.success("Check your inbox — a magic link has been sent.");
+    toast.success("Check your inbox (and spam folder) — a magic link has been sent.");
   };
 
   return (

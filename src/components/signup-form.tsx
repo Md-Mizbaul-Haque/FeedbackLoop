@@ -92,7 +92,7 @@ export default function SignupPage() {
       return;
     }
 
-    toast.success("Check your inbox — a magic link has been sent.");
+    toast.success("Check your inbox (and spam folder) — a magic link has been sent.");
   };
 
   const sendOtp = async (targetEmail: string, targetPassword: string) => {
@@ -407,6 +407,9 @@ export default function SignupPage() {
                 <p className="text-sm text-muted-foreground">
                   We sent a 6-digit code to{" "}
                   <span className="font-medium text-foreground">{email}</span>
+                </p>
+                <p className="text-xs font-medium text-primary bg-primary/5 border border-primary/10 rounded-lg px-3 py-2">
+                  Didn&apos;t receive it? Check your spam or promotions folder.
                 </p>
               </div>
 
