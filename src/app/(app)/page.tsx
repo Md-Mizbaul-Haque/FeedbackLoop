@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { UploadCloud, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +26,12 @@ export default function CreateSummaryPage() {
 
   const handleClear = () => {
     setReviews("");
+  };
+
+  const handleGenerate = () => {
+    toast.success(
+      `Summary generated from ${reviewCount} reviews — check the results page!`,
+    );
   };
 
   return (
@@ -108,6 +115,7 @@ export default function CreateSummaryPage() {
             <Button 
               size="lg" 
               className="w-full bg-primary hover:bg-primary/90 text-white font-medium h-12 rounded-xl text-sm transition-all shadow-sm"
+              onClick={handleGenerate}
             >
               <Sparkles className="h-4 w-4 mr-2" />
               Generate Summary

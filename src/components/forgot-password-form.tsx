@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Mail, Sparkles, Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,13 +11,10 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
     setLoading(true);
 
     const supabase = createClient();
@@ -27,11 +25,11 @@ export default function ForgotPasswordPage() {
     setLoading(false);
 
     if (error) {
-      setError(error.message);
+      toast.error(error.message);
       return;
     }
 
-    setSent(true);
+    toast.success("If an account exists for that email, a reset link has been sent.");
   };
 
   return (
@@ -53,26 +51,6 @@ export default function ForgotPasswordPage() {
               Enter your email and we&apos;ll send you a reset link
             </p>
           </div>
-
-          {error && (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-            >
-              {error}
-            </div>
-          )}
-
-          {sent && (
-            <div
-              role="status"
-              className="rounded-lg border border-primary/30 bg-secondary px-4 py-3 text-sm text-foreground"
-            >
-              If an account exists for{" "}
-              <span className="font-semibold">{email}</span>, a password reset
-              link has been sent.
-            </div>
-          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">

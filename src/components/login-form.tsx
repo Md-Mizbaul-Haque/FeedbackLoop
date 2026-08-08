@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Mail, Lock, Sparkles, Heart, Star, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,22 +15,26 @@ import { createClient } from "@/lib/supabase/client";
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/";
-  const errorParam = searchParams.get("error");
+  const rawNext = searchParams.get("next");
+  const next =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
+      ? rawNext
+      : "/";
+
+  useEffect(() => {
+    if (searchParams.get("error") === "auth") {
+      toast.error("Something went wrong. Please try again.");
+    }
+  }, [searchParams]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(
-    errorParam === "auth" ? "Something went wrong. Please try again." : null,
-  );
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [loading, setLoading] = useState<"password" | "google" | "magic" | null>(
     null,
   );
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
     setLoading("password");
 
     const supabase = createClient();
@@ -41,16 +46,16 @@ export default function LoginPage() {
     setLoading(null);
 
     if (error) {
-      setError(error.message);
+      toast.error(error.message);
       return;
     }
 
+    toast.success("Signed in successfully!");
     router.push(next);
     router.refresh();
   };
 
   const handleGoogleLogin = async () => {
-    setError(null);
     setLoading("google");
 
     const supabase = createClient();
@@ -64,12 +69,11 @@ export default function LoginPage() {
     setLoading(null);
 
     if (error) {
-      setError(error.message);
+      toast.error(error.message);
     }
   };
 
   const handleMagicLink = async () => {
-    setError(null);
     setLoading("magic");
 
     const supabase = createClient();
@@ -83,11 +87,11 @@ export default function LoginPage() {
     setLoading(null);
 
     if (error) {
-      setError(error.message);
+      toast.error(error.message);
       return;
     }
 
-    setMagicLinkSent(true);
+    toast.success("Check your inbox — a magic link has been sent.");
   };
 
   return (
@@ -112,25 +116,6 @@ export default function LoginPage() {
               Sign in to your account to continue
             </p>
           </div>
-
-          {error && (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-            >
-              {error}
-            </div>
-          )}
-
-          {magicLinkSent && (
-            <div
-              role="status"
-              className="rounded-lg border border-primary/30 bg-secondary px-4 py-3 text-sm text-foreground"
-            >
-              Check your inbox — a magic link has been sent to{" "}
-              <span className="font-semibold">{email}</span>.
-            </div>
-          )}
 
           {/* OAuth & Social Login */}
           <div className="space-y-3">

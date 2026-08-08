@@ -115,6 +115,7 @@ export function Sidebar({ onNavClick }: SidebarProps) {
           </Button>
         ) : (
           <Button
+            nativeButton={false}
             render={<Link href="/login" onClick={onNavClick} />}
             className="w-full justify-start text-muted-foreground hover:text-foreground hover:bg-muted px-3"
           >

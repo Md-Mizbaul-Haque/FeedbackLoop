@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Mail, Lock, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,13 +16,9 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [checkEmail, setCheckEmail] = useState(false);
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
 
   const handleGoogleSignup = async () => {
-    setError(null);
     setLoading(true);
 
     const supabase = createClient();
@@ -35,15 +32,13 @@ export default function SignupPage() {
     setLoading(false);
 
     if (error) {
-      setError(error.message);
+      toast.error(error.message);
     }
   };
 
   const handleMagicLink = async () => {
-    setError(null);
-
     if (!email) {
-      setError("Enter your email first.");
+      toast.error("Enter your email first.");
       return;
     }
 
@@ -61,24 +56,23 @@ export default function SignupPage() {
     setLoading(false);
 
     if (error) {
-      setError(error.message);
+      toast.error(error.message);
       return;
     }
 
-    setMagicLinkSent(true);
+    toast.success("Check your inbox — a magic link has been sent.");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      toast.error("Passwords do not match.");
       return;
     }
 
     if (password.length < 8) {
-      setError("Password must be at least 8 characters long.");
+      toast.error("Password must be at least 8 characters long.");
       return;
     }
 
@@ -96,17 +90,20 @@ export default function SignupPage() {
     setLoading(false);
 
     if (error) {
-      setError(error.message);
+      toast.error(error.message);
       return;
     }
 
     if (data.session) {
+      toast.success("Account created — welcome!");
       router.push("/");
       router.refresh();
       return;
     }
 
-    setCheckEmail(true);
+    toast.success(
+      "Check your inbox — we sent a confirmation link to activate your account.",
+    );
   };
 
   return (
@@ -129,37 +126,6 @@ export default function SignupPage() {
               Start summarizing customer feedback with AI
             </p>
           </div>
-
-          {error && (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-            >
-              {error}
-            </div>
-          )}
-
-          {checkEmail && (
-            <div
-              role="status"
-              className="rounded-lg border border-primary/30 bg-secondary px-4 py-3 text-sm text-foreground"
-            >
-              Check your inbox — we sent a confirmation link to{" "}
-              <span className="font-semibold">{email}</span>. Click it to
-              activate your account.
-            </div>
-          )}
-
-          {magicLinkSent && (
-            <div
-              role="status"
-              className="rounded-lg border border-primary/30 bg-secondary px-4 py-3 text-sm text-foreground"
-            >
-              Check your inbox — a magic link has been sent to{" "}
-              <span className="font-semibold">{email}</span>. Click it to
-              activate your account.
-            </div>
-          )}
 
           <div className="space-y-3">
             <Button

@@ -163,6 +163,7 @@ export function Header() {
           {/* User area */}
           {!user ? (
             <Button
+              nativeButton={false}
               render={<Link href="/login" />}
               className="h-9 rounded-lg"
             >
