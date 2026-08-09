@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -9,6 +9,7 @@ import {
   MoreVertical,
   ChevronLeft,
   ChevronRight,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ interface SummaryItem {
   reviewsCount: number;
   keywords: { label: string; colorClass: string }[];
   createdAt: string;
+  createdAtRaw: string;
 }
 
 const colorPalettes = [
@@ -95,11 +97,39 @@ function downloadSummary(summary: SummaryItem) {
 export function MySummaries() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [timeRange, setTimeRange] = useState("all");
   const [summaries, setSummaries] = useState<SummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SummaryItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim().toLowerCase());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const [cutoff, setCutoff] = useState<number | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim().toLowerCase());
+      const now = Date.now();
+      setCutoff(
+        timeRange === "7days"
+          ? now - 7 * 24 * 60 * 60 * 1000
+          : timeRange === "30days"
+            ? now - 30 * 24 * 60 * 60 * 1000
+            : timeRange === "year"
+              ? new Date(new Date().getFullYear(), 0, 1).getTime()
+              : null,
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, timeRange]);
 
   const applyRows = useCallback(
     (rows: { id: string; title: string; reviews_count: number; keywords: { label: string }[]; created_at: string }[], error: { message: string } | null) => {
@@ -119,6 +149,7 @@ export function MySummaries() {
             }),
           ),
           createdAt: formatDate(row.created_at),
+          createdAtRaw: row.created_at,
         })),
       );
       setLoading(false);
@@ -196,9 +227,20 @@ export function MySummaries() {
     reload();
   };
 
-  const filteredSummaries = summaries.filter((item) =>
-    item.title.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+  const filteredSummaries = useMemo(() => {
+    const q = debouncedQuery;
+
+    return summaries.filter((item) => {
+      if (cutoff !== null && new Date(item.createdAtRaw).getTime() < cutoff) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        item.title.toLowerCase().includes(q) ||
+        item.keywords.some((kw) => kw.label.toLowerCase().includes(q))
+      );
+    });
+  }, [summaries, debouncedQuery, cutoff]);
 
   return (
     <div className="space-y-6">
@@ -231,14 +273,27 @@ export function MySummaries() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="text"
-                placeholder="Search summaries..."
+                placeholder="Search by title or keyword..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 h-10 rounded-lg text-sm"
+                className="pl-9 pr-9 h-10 rounded-lg text-sm"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
 
-            <Select defaultValue="all">
+            <Select
+              value={timeRange}
+              onValueChange={(value) => setTimeRange(value ?? "all")}
+            >
               <SelectTrigger className="w-full sm:w-36 h-10 text-sm">
                 <SelectValue placeholder="All Time" />
               </SelectTrigger>
