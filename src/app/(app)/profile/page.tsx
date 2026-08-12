@@ -1,10 +1,13 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
+import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
   Calendar,
+  CreditCard,
   Gauge,
   Globe,
   Loader2,
@@ -13,10 +16,10 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
+  Sparkles,
   Upload,
   User as UserIcon,
 } from "lucide-react";
-import type { User } from "@supabase/supabase-js";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +35,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
@@ -43,11 +47,20 @@ import {
   resizeAvatar,
   useAvatarUrl,
 } from "@/lib/avatar";
+import {
+  businessQueryKey,
+  isExpiredSubscription,
+  useBusinessProfile,
+  useCredits,
+  useUser,
+  userQueryKey,
+} from "@/lib/queries";
 
-const ANALYSES_PER_HOUR = 10;
+const CREDITS_PER_WINDOW = 10;
+const WINDOW_HOURS = 24;
 
 function formatDate(value: string | undefined) {
-  if (!value) return "â€”";
+  if (!value) return "—";
   return new Date(value).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
@@ -66,9 +79,19 @@ function providerLabel(provider: string | undefined) {
 }
 
 export default function ProfilePage() {
-  const [user, setUser] = useState<User | null>(null);
+  const queryClient = useQueryClient();
+  const { user, isLoading: authLoading } = useUser();
+  const { credits } = useCredits(user?.id ?? null);
+  const { businessName, website } = useBusinessProfile(user?.id ?? null);
   const [fullName, setFullName] = useState("");
   const [avatarPath, setAvatarPath] = useState("");
+  const [businessNameForm, setBusinessNameForm] = useState("");
+  const [websiteForm, setWebsiteForm] = useState("");
+  const [prevUser, setPrevUser] = useState(user);
+  const [prevBusiness, setPrevBusiness] = useState<{
+    name: string;
+    website: string;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -78,87 +101,104 @@ export default function ProfilePage() {
   const [removeAvatarOpen, setRemoveAvatarOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarUrl = useAvatarUrl(user);
-  const [businessName, setBusinessName] = useState("");
-  const [website, setWebsite] = useState("");
   const [savingBusiness, setSavingBusiness] = useState(false);
-  const [usageUsed, setUsageUsed] = useState<number | null>(null);
-  const [usageResetAt, setUsageResetAt] = useState<Date | null>(null);
 
-  const loadUsage = useCallback(async (uid: string) => {
-    const supabase = createClient();
-    const hourStart = new Date();
-    hourStart.setMinutes(0, 0, 0);
-    hourStart.setSeconds(0, 0);
+  if (prevUser !== user) {
+    setPrevUser(user);
+    setFullName(
+      (user?.user_metadata?.full_name as string) ??
+        (user?.user_metadata?.name as string) ??
+        "",
+    );
+    setAvatarPath((user?.user_metadata?.avatar_url as string) ?? "");
+  }
 
-    const { count, error } = await supabase
-      .from("analysis_usage")
-      .select("user_id", { count: "exact", head: true })
-      .eq("user_id", uid)
-      .gte("bucket", hourStart.toISOString());
+  if (
+    prevBusiness?.name !== businessName ||
+    prevBusiness?.website !== website
+  ) {
+    setPrevBusiness({ name: businessName, website });
+    setBusinessNameForm(businessName);
+    setWebsiteForm(website);
+  }
 
-    if (error) return;
-    setUsageUsed(count ?? 0);
-    setUsageResetAt(new Date(hourStart.getTime() + 60 * 60 * 1000));
-  }, []);
+  const usageUsed = credits?.used ?? 0;
+  const plan = credits?.plan ?? "free";
+  const expired = isExpiredSubscription(credits);
+  const usageResetAt = credits?.windowStart
+    ? new Date(new Date(credits.windowStart).getTime() + WINDOW_HOURS * 60 * 60 * 1000)
+    : null;
 
-  const loadBusiness = useCallback(async (uid: string) => {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("business_name, website")
-      .eq("id", uid)
-      .maybeSingle();
+  const subscriptionStatusInfo: Record<
+    string,
+    { label: string; className: string }
+  > = {
+    active: {
+      label: "Active",
+      className: "bg-emerald-500/10 text-emerald-600 border-0",
+    },
+    on_trial: {
+      label: "Trial",
+      className: "bg-emerald-500/10 text-emerald-600 border-0",
+    },
+    past_due: {
+      label: "Payment failed",
+      className: "bg-destructive/10 text-destructive border-0",
+    },
+    unpaid: {
+      label: "Payment failed",
+      className: "bg-destructive/10 text-destructive border-0",
+    },
+    cancelled: {
+      label: "Cancelled",
+      className: "bg-amber-500/10 text-amber-600 border-0",
+    },
+    paused: {
+      label: "Paused",
+      className: "bg-secondary text-secondary-foreground border-0",
+    },
+    expired: {
+      label: "Expired",
+      className: "bg-secondary text-secondary-foreground border-0",
+    },
+  };
+  const statusInfo = credits?.subscriptionStatus
+    ? subscriptionStatusInfo[credits.subscriptionStatus]
+    : null;
 
-    if (error) return;
-    setBusinessName(data?.business_name ?? "");
-    setWebsite(data?.website ?? "");
-  }, []);
+  const [managingSubscription, setManagingSubscription] = useState(false);
 
-  useEffect(() => {
-    const supabase = createClient();
-
-    supabase.auth.getUser().then(({ data }) => {
-      const u = data.user;
-      setUser(u);
-      if (u) {
-        setFullName(
-          (u.user_metadata?.full_name as string) ??
-            (u.user_metadata?.name as string) ??
-            "",
-        );
-        setAvatarPath((u.user_metadata?.avatar_url as string) ?? "");
-        loadUsage(u.id);
-        loadBusiness(u.id);
+  const handleManageSubscription = async () => {
+    if (managingSubscription) return;
+    setManagingSubscription(true);
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please sign in again.");
+        return;
       }
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        setFullName(
-          (session.user.user_metadata?.full_name as string) ??
-            (session.user.user_metadata?.name as string) ??
-            "",
-        );
-        setAvatarPath(
-          (session.user.user_metadata?.avatar_url as string) ?? "",
-        );
-        loadUsage(session.user.id);
-        loadBusiness(session.user.id);
+      const response = await fetch("/api/lemon-squeezy/portal", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const body = (await response.json()) as { url?: string; error?: string };
+      if (!response.ok || !body.url) {
+        toast.error(body?.error ?? "Could not open the billing portal.");
+        return;
       }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [loadBusiness, loadUsage]);
-
-  useEffect(() => {
-    if (!user) return;
-    const handleFocus = () => loadUsage(user.id);
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-  }, [user, loadUsage]);
+      window.open(body.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error("Billing portal failed:", err);
+      toast.error("Could not open the billing portal.");
+    } finally {
+      setManagingSubscription(false);
+    }
+  };
 
   const displayName =
     user?.user_metadata?.full_name ??
@@ -190,6 +230,7 @@ export default function ProfilePage() {
       return;
     }
 
+    queryClient.invalidateQueries({ queryKey: userQueryKey });
     toast.success("Profile updated successfully!");
   };
 
@@ -244,6 +285,7 @@ export default function ProfilePage() {
       }
 
       setAvatarPath(path);
+      queryClient.invalidateQueries({ queryKey: userQueryKey });
       toast.success("Profile photo updated!");
     } catch (err) {
       console.error("Avatar upload failed:", err);
@@ -278,6 +320,7 @@ export default function ProfilePage() {
     }
 
     setAvatarPath("");
+    queryClient.invalidateQueries({ queryKey: userQueryKey });
     toast.success("Profile photo removed.");
   };
 
@@ -313,7 +356,7 @@ export default function ProfilePage() {
     setNewPassword("");
     setConfirmPassword("");
     setShowPassword(false);
-    if (data.user) setUser(data.user);
+    if (data.user) queryClient.setQueryData(userQueryKey, data.user);
 
     toast.success(
       alreadyHadPassword
@@ -328,7 +371,7 @@ export default function ProfilePage() {
     e.preventDefault();
     if (!user) return;
 
-    const trimmedWebsite = website.trim();
+    const trimmedWebsite = websiteForm.trim();
     if (trimmedWebsite) {
       try {
         const url = new URL(
@@ -348,7 +391,7 @@ export default function ProfilePage() {
       .upsert(
         {
           id: user.id,
-          business_name: businessName.trim(),
+          business_name: businessNameForm.trim(),
           website: trimmedWebsite,
         },
         { onConflict: "id" },
@@ -361,8 +404,132 @@ export default function ProfilePage() {
       return;
     }
 
+    queryClient.invalidateQueries({ queryKey: businessQueryKey(user.id) });
     toast.success("Business info saved!");
   };
+
+  if (authLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="space-y-6">
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton className="size-20 rounded-full" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-4 w-44" />
+                  </div>
+                </div>
+                <Skeleton className="h-px w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6 space-y-3">
+                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-2 w-full rounded-full" />
+                <Skeleton className="h-9 w-full" />
+              </CardContent>
+            </Card>
+          </div>
+          <Card className="lg:col-span-2">
+            <CardContent className="p-6 md:p-8 space-y-6">
+              <div className="space-y-2">
+                <Skeleton className="h-6 w-36" />
+                <Skeleton className="h-4 w-64" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="ml-auto h-10 w-36" />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Profile</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            View and manage your account information.
+          </p>
+        </div>
+
+        <div className="flex min-h-[55vh] items-center justify-center">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-8 flex flex-col items-center text-center space-y-5">
+              <div className="h-14 w-14 rounded-full bg-secondary flex items-center justify-center text-primary">
+                <ShieldCheck className="h-7 w-7" />
+              </div>
+
+              <div className="space-y-1">
+                <h2 className="text-xl font-bold tracking-tight">
+                  Sign in to access your profile
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Your account details, usage, business info, and password
+                  settings are managed here.
+                </p>
+              </div>
+
+              <ul className="w-full space-y-3 text-sm text-left">
+                <li className="flex items-center gap-3">
+                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-muted-foreground">
+                    Save and manage your AI summaries
+                  </span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Gauge className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-muted-foreground">
+                    Track your plan and daily credits
+                  </span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Building2 className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-muted-foreground">
+                    Personalize your business details
+                  </span>
+                </li>
+              </ul>
+
+              <div className="flex w-full flex-col gap-2 sm:flex-row">
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/login" />}
+                  className="flex-1 bg-primary hover:bg-primary/90 text-white font-medium h-10"
+                >
+                  Sign in
+                </Button>
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/signup" />}
+                  variant="outline"
+                  className="flex-1 border-border h-10"
+                >
+                  Create an account
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -411,7 +578,7 @@ export default function ProfilePage() {
                   Email
                 </span>
                 <span className="font-medium text-foreground truncate">
-                  {user?.email ?? "â€”"}
+                  {user?.email ?? "—"}
                 </span>
               </div>
               <div className="flex items-start justify-between gap-4">
@@ -443,24 +610,109 @@ export default function ProfilePage() {
               <div className="h-9 w-9 rounded-full bg-secondary flex items-center justify-center text-primary">
                 <Gauge className="h-4.5 w-4.5" />
               </div>
-              <div>
+              <div className="flex-1">
                 <h2 className="font-bold text-base tracking-tight">Usage</h2>
                 <p className="text-xs text-muted-foreground">
-                  AI analyses this hour
+                  {plan === "pro"
+                    ? "Unlimited AI analyses"
+                    : `AI analyses in this 24-hour window`}
                 </p>
               </div>
+              <Badge
+                className={
+                  plan === "pro"
+                    ? "bg-primary/10 text-primary border-0 px-2.5 py-0.5"
+                    : "bg-secondary text-secondary-foreground border-0 px-2.5 py-0.5"
+                }
+              >
+                <Sparkles
+                  className={
+                    plan === "pro"
+                      ? "h-3 w-3 mr-1 text-primary"
+                      : "h-3 w-3 mr-1"
+                  }
+                />
+                {plan === "pro" ? "Pro" : "Free"}
+              </Badge>
             </div>
 
-            {usageUsed === null ? (
+            {plan === "pro" ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm text-foreground">
+                  <p className="font-semibold">Unlimited summaries</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    You&apos;re on the Pro plan. No credit limits apply to your
+                    account.
+                  </p>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Subscription</span>
+                    {statusInfo ? (
+                      <Badge className={statusInfo.className}>
+                        {statusInfo.label}
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-primary/10 text-primary border-0">
+                        Pro
+                      </Badge>
+                    )}
+                  </div>
+                  {credits?.subscriptionStatus === "active" &&
+                    credits?.renewsAt ? (
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Renews</span>
+                      <span className="font-medium">
+                        {new Date(credits.renewsAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ) : null}
+                  {credits?.cancelAtPeriodEnd && credits?.endsAt ? (
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Access until</span>
+                      <span className="font-medium">
+                        {new Date(credits.endsAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ) : null}
+                  {credits?.billingInterval ? (
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Plan</span>
+                      <span className="font-medium capitalize">
+                        Pro ({credits.billingInterval})
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  variant="outline"
+                  disabled={managingSubscription}
+                  onClick={handleManageSubscription}
+                  className="w-full border-border h-9"
+                >
+                  {managingSubscription ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Opening…
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Manage subscription
+                    </>
+                  )}
+                </Button>
+              </div>
+            ) : credits === null ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading usageâ€¦
+                Loading usage…
               </div>
             ) : (
               <div className="space-y-2">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="text-sm font-semibold text-foreground">
-                    {usageUsed} of {ANALYSES_PER_HOUR} used
+                    {usageUsed} of {CREDITS_PER_WINDOW} credits used
                   </span>
                   {usageResetAt ? (
                     <span className="text-xs text-muted-foreground">
@@ -476,24 +728,34 @@ export default function ProfilePage() {
                   <div
                     className={cn(
                       "h-full rounded-full transition-all",
-                      usageUsed >= ANALYSES_PER_HOUR
+                      usageUsed >= CREDITS_PER_WINDOW
                         ? "bg-destructive"
                         : "bg-primary",
                     )}
                     style={{
-                      width: `${Math.min(100, (usageUsed / ANALYSES_PER_HOUR) * 100)}%`,
+                      width: `${Math.min(100, (usageUsed / CREDITS_PER_WINDOW) * 100)}%`,
                     }}
                   />
                 </div>
-                {usageUsed >= ANALYSES_PER_HOUR ? (
+                {usageUsed >= CREDITS_PER_WINDOW ? (
                   <p className="text-xs text-destructive">
-                    You&apos;ve reached the hourly limit. Try again later.
+                    You&apos;ve used all your credits. Upgrade to Pro for
+                    unlimited summaries.
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Free plan: up to {ANALYSES_PER_HOUR} analyses per hour.
+                    Free plan: up to {CREDITS_PER_WINDOW} credits every{" "}
+                    {WINDOW_HOURS} hours.
                   </p>
                 )}
+                <Button
+                  nativeButton={false}
+                  render={<Link href="/pricing" />}
+                  className="mt-2 w-full bg-primary hover:bg-primary/90 text-white font-medium h-9"
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  {expired ? "Renew Pro" : "Upgrade to Pro"}
+                </Button>
               </div>
             )}
           </CardContent>
@@ -561,7 +823,7 @@ export default function ProfilePage() {
                         ) : (
                           <Upload className="h-4 w-4 mr-2" />
                         )}
-                        {uploading ? "Uploadingâ€¦" : "Upload photo"}
+                        {uploading ? "Uploading…" : "Upload photo"}
                       </Button>
                       {avatarPath ? (
                         <Button
@@ -627,8 +889,8 @@ export default function ProfilePage() {
                     id="business-name"
                     type="text"
                     placeholder="My Grocery Store"
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
+                    value={businessNameForm}
+                    onChange={(e) => setBusinessNameForm(e.target.value)}
                     className="h-10 pl-10 rounded-lg text-sm"
                   />
                   <Building2 className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -642,8 +904,8 @@ export default function ProfilePage() {
                     id="website"
                     type="text"
                     placeholder="https://mygrocerystore.com"
-                    value={website}
-                    onChange={(e) => setWebsite(e.target.value)}
+                    value={websiteForm}
+                    onChange={(e) => setWebsiteForm(e.target.value)}
                     className="h-10 pl-10 rounded-lg text-sm"
                   />
                   <Globe className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -694,7 +956,7 @@ export default function ProfilePage() {
                   <Input
                     id="new-password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="h-10 pl-10 pr-10 rounded-lg text-sm"
@@ -723,7 +985,7 @@ export default function ProfilePage() {
                   <Input
                     id="confirm-password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="h-10 pl-10 pr-10 rounded-lg text-sm"

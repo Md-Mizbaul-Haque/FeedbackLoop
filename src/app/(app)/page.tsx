@@ -2,11 +2,22 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
-import { UploadCloud, Sparkles, Loader2, CheckCircle2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCredits, useUser, isExpiredSubscription } from "@/lib/queries";
+import { UploadCloud, Sparkles, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -23,6 +34,7 @@ import {
 } from "@/lib/csv";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const FREE_MAX_REVIEWS = 50;
 
 const sampleCsv = `Title,Content,Rating
 Great product,"Delivery was super fast, and the packaging was great!",5
@@ -38,7 +50,10 @@ Five stars,"Five stars from me!",5`;
 
 export default function CreateSummaryPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useUser();
+  const { credits } = useCredits(user?.id ?? null);
   const [reviews, setReviews] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -46,9 +61,14 @@ export default function CreateSummaryPage() {
   const [csvRows, setCsvRows] = useState<string[][] | null>(null);
   const [csvColumnCount, setCsvColumnCount] = useState(0);
   const [selectedColumn, setSelectedColumn] = useState(0);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+
+  const plan = credits?.plan ?? "free";
+  const expired = isExpiredSubscription(credits);
 
   const reviewCount = reviews.trim() ? reviews.trim().split("\n").filter(Boolean).length : 0;
   const characterCount = reviews.length;
+  const overFreeLimit = plan === "free" && reviewCount > FREE_MAX_REVIEWS;
 
   const handleClear = () => {
     setReviews("");
@@ -124,8 +144,10 @@ export default function CreateSummaryPage() {
       toast.error(`Please provide at least 10 reviews (you entered ${reviewsList.length}).`);
       return;
     }
-    if (reviewsList.length > 50) {
-      toast.error(`Please provide at most 50 reviews (you entered ${reviewsList.length}).`);
+    if (plan === "free" && reviewsList.length > FREE_MAX_REVIEWS) {
+      toast.error(
+        `The free plan supports up to ${FREE_MAX_REVIEWS} reviews per input (you entered ${reviewsList.length}).`,
+      );
       return;
     }
 
@@ -150,7 +172,15 @@ export default function CreateSummaryPage() {
         const ctx = (error as { context?: Response }).context;
         if (ctx) {
           try {
-            const body = (await ctx.json()) as { error?: string };
+            const body = (await ctx.json()) as {
+              error?: string;
+              error_code?: string;
+            };
+            if (body?.error_code === "usage_limit_exceeded") {
+              queryClient.invalidateQueries({ queryKey: ["credits"] });
+              setShowUpgradeDialog(true);
+              return;
+            }
             if (body?.error) {
               toast.error(body.error);
               return;
@@ -169,6 +199,7 @@ export default function CreateSummaryPage() {
             keywords: { label: string; count: number }[];
             positive_sentiment_pct: number | null;
             average_rating: number | null;
+            analysis?: unknown;
           }
         | undefined;
 
@@ -177,6 +208,7 @@ export default function CreateSummaryPage() {
       }
 
       const summary = {
+        user_id: user.id,
         title: result.title,
         reviews_count: reviewsList.length,
         keywords: result.keywords,
@@ -184,35 +216,23 @@ export default function CreateSummaryPage() {
         positive_sentiment_pct: result.positive_sentiment_pct ?? 0,
         average_rating: result.average_rating ?? 0,
         reviews: reviewsList.join("\n"),
+        analysis: result.analysis ?? null,
         widget_id:
           typeof crypto !== "undefined" && "randomUUID" in crypto
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       };
 
-      const { data: saved, error: saveError } = await supabase
-        .from("summaries")
-        .insert(summary)
-        .select("id")
-        .single();
-
-      if (saveError) {
-        console.error("Failed to save summary:", saveError);
-        sessionStorage.setItem(
-          "feedbackloop:latest-summary",
-          JSON.stringify(summary),
-        );
-        toast.success(
-          `Summary generated from ${reviewsList.length} reviews, but couldn't be saved to your account.`,
-        );
-        router.push("/results");
-        return;
-      }
+      sessionStorage.setItem(
+        "feedbackloop:latest-summary",
+        JSON.stringify(summary),
+      );
 
       toast.success(
         `Summary generated from ${reviewsList.length} reviews!`,
       );
-      router.push(`/results?id=${saved.id}`);
+      queryClient.invalidateQueries({ queryKey: ["credits"] });
+      router.push("/results");
     } catch (err) {
       console.error(err);
       toast.error("AI analysis failed. Please try again.");
@@ -223,6 +243,31 @@ export default function CreateSummaryPage() {
 
   return (
     <div className="space-y-6">
+      {expired && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
+              <div>
+                <p className="font-medium text-foreground">
+                  Your Pro subscription has ended
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  You&apos;re now on the Free plan (10 summaries per 24 hours).
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/pricing"
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+            >
+              <Sparkles className="h-4 w-4" />
+              Renew Pro
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Title Section */}
       <div>
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Create New Summary</h1>
@@ -240,7 +285,9 @@ export default function CreateSummaryPage() {
             <div className="lg:col-span-7 flex flex-col space-y-2">
               <label className="font-semibold text-sm">Paste Reviews</label>
               <p className="text-xs text-muted-foreground mb-1">
-                Paste 10-50 customer reviews (one per line)
+                {plan === "pro"
+                  ? "Paste at least 10 customer reviews (one per line)"
+                  : "Paste 10-50 customer reviews (one per line)"}
               </p>
               
               <div className="relative flex-1 flex flex-col">
@@ -253,7 +300,7 @@ export default function CreateSummaryPage() {
                 
                 {/* Meta Info Footer inside Textarea space */}
                 <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
-                  <span>
+                  <span className={overFreeLimit ? "text-amber-600 font-medium" : ""}>
                     {reviewCount} reviews • {characterCount.toLocaleString()} characters
                   </span>
                   <Button
@@ -266,6 +313,14 @@ export default function CreateSummaryPage() {
                     Clear
                   </Button>
                 </div>
+
+                {overFreeLimit && (
+                  <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                    You&apos;ve entered {reviewCount} reviews. The free plan
+                    supports up to {FREE_MAX_REVIEWS} per input. Upgrade to Pro
+                    for unlimited reviews.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -393,6 +448,46 @@ export default function CreateSummaryPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={showUpgradeDialog}
+        onOpenChange={(open) => {
+          if (!open && !isGenerating) setShowUpgradeDialog(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+              <Sparkles className="h-6 w-6 text-primary" />
+            </div>
+            <DialogTitle className="text-center">
+              You&apos;ve used all your free summaries
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              The free plan includes 10 summaries every 24 hours. Upgrade to
+              Pro for unlimited summaries and never wait for a reset again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-center gap-2">
+            <Button
+              variant="outline"
+              className="border-border"
+              onClick={() => setShowUpgradeDialog(false)}
+            >
+              Maybe later
+            </Button>
+            <Button
+              nativeButton={false}
+              render={<Link href="/pricing" />}
+              className="bg-primary hover:bg-primary/90 text-white font-medium"
+              onClick={() => setShowUpgradeDialog(false)}
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              Upgrade to Pro
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

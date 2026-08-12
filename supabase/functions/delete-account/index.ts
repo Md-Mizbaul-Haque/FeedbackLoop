@@ -43,6 +43,15 @@ Deno.serve(async (req: Request) => {
     { auth: { persistSession: false } },
   );
 
+  // Grab the billing reference before user_credits is removed below, so we can
+  // cancel any active Lemon Squeezy subscription and stop future charges.
+  const { data: creditRow } = await admin
+    .from("user_credits")
+    .select("ls_subscription_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const lsSubscriptionId = creditRow?.ls_subscription_id ?? null;
+
   const { error: summariesError } = await admin
     .from("summaries")
     .delete()
@@ -60,12 +69,49 @@ Deno.serve(async (req: Request) => {
     console.error("failed to delete analysis_usage:", usageError);
   }
 
+  const { error: creditsError } = await admin
+    .from("user_credits")
+    .delete()
+    .eq("user_id", user.id);
+  if (creditsError) {
+    console.error("failed to delete user_credits:", creditsError);
+  }
+
   const { error: settingsError } = await admin
     .from("user_settings")
     .delete()
     .eq("user_id", user.id);
   if (settingsError) {
     console.error("failed to delete user_settings:", settingsError);
+  }
+
+  // Best-effort: cancel the subscription so a deleted account is never
+  // charged again. Never block account deletion on billing.
+  if (lsSubscriptionId) {
+    const lsApiKey = Deno.env.get("LEMONSQUEEZY_API_KEY");
+    if (lsApiKey) {
+      try {
+        const res = await fetch(
+          `https://api.lemonsqueezy.com/v1/subscriptions/${lsSubscriptionId}`,
+          {
+            method: "DELETE",
+            headers: {
+              Accept: "application/vnd.api+json",
+              Authorization: `Bearer ${lsApiKey}`,
+            },
+          },
+        );
+        if (!res.ok) {
+          console.error(
+            "failed to cancel Lemon Squeezy subscription:",
+            res.status,
+            await res.text(),
+          );
+        }
+      } catch (err) {
+        console.error("failed to cancel Lemon Squeezy subscription:", err);
+      }
+    }
   }
 
   const { error: deleteError } = await admin.auth.admin.deleteUser(user.id);
