@@ -1,0 +1,9 @@
+# local tooling / runtime state — never ship these
+.freebuff/
+*.log
+scripts/
+supabase/.temp/
+
+# secrets — belt and braces (Vercel also excludes these by default)
+.env*
+!.env.example
