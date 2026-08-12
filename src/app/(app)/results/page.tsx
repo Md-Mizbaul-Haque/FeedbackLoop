@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { createClient } from "@/lib/supabase/server";
 import { SummaryResults } from "@/components/summary-result";
-import { WidgetPreview } from "@/components/widget-preview";
 import { LatestResult } from "@/components/latest-result";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,7 +31,7 @@ export default async function ResultsPage({
   if (!summary) {
     return (
       <Card>
-        <CardContent className="p-8 text-center space-y-4">
+        <CardContent className="p-4 text-center space-y-4 sm:p-8">
           <p className="text-muted-foreground text-sm">
             This summary could not be found or you don&apos;t have access to it.
           </p>
@@ -45,7 +44,6 @@ export default async function ResultsPage({
   return (
     <>
       <SummaryResults summary={summary} />
-      <WidgetPreview items={summary.keywords?.map((k: { label: string }) => k.label) ?? []} />
     </>
   );
 }

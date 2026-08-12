@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
   const { data: summary, error } = await supabase
     .from("summaries")
-    .select("title, reviews_count, keywords, positive_sentiment_pct, average_rating, created_at")
+    .select("title, reviews_count, keywords, positive_sentiment_pct, average_rating, analysis, created_at")
     .eq("widget_id", widgetId)
     .maybeSingle();
 

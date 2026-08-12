@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
 import { SummaryResults, type Summary } from "@/components/summary-result";
-import { WidgetPreview } from "@/components/widget-preview";
 
 const STORAGE_KEY = "feedbackloop:latest-summary";
 
@@ -46,6 +45,7 @@ export function LatestResult() {
       const { data, error } = await supabase
         .from("summaries")
         .insert({
+          user_id: user.id,
           title: summary.title,
           reviews_count: summary.reviews_count,
           keywords: summary.keywords,
@@ -54,6 +54,7 @@ export function LatestResult() {
           average_rating: summary.average_rating ?? 0,
           reviews: summary.reviews ?? null,
           widget_id: summary.widget_id,
+          analysis: summary.analysis ?? null,
         })
         .select("id")
         .single();
@@ -74,7 +75,7 @@ export function LatestResult() {
   if (!summary) {
     return (
       <Card>
-        <CardContent className="p-8 text-center space-y-4">
+        <CardContent className="p-4 text-center space-y-4 sm:p-8">
           <p className="text-muted-foreground text-sm">
             No summary selected. Generate a new summary to see your results.
           </p>
@@ -87,7 +88,6 @@ export function LatestResult() {
   return (
     <>
       <SummaryResults summary={summary} onSave={handleSave} saving={saving} />
-      <WidgetPreview items={summary.keywords?.map((k) => k.label) ?? []} />
     </>
   );
 }

@@ -307,8 +307,8 @@ export function MySummaries() {
           </div>
 
           {/* Summaries Table */}
-          <div className="rounded-lg border border-border/60 overflow-hidden">
-            <Table>
+          <div className="overflow-x-auto rounded-lg border border-border/60">
+            <Table className="min-w-[640px]">
               <TableHeader className="bg-muted/50">
                 <TableRow className="hover:bg-transparent border-border">
                   <TableHead className="font-semibold text-xs text-muted-foreground uppercase tracking-wider py-3.5">
