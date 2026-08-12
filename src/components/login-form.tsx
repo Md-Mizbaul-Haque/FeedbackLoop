@@ -1,33 +1,36 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Mail, Lock, Sparkles, Heart, Star, Loader2, Eye, EyeOff } from "lucide-react";
+import { Mail, Lock, Loader2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
-import { Card } from "@/components/ui/card";
+import { LogoMark } from "@/components/logo-mark";
 import { Separator } from "@/components/ui/separator";
+import { AuthVisual } from "@/components/auth-visual";
 import { createClient } from "@/lib/supabase/client";
 import { friendlyAuthMessage } from "@/lib/friendly-auth-error";
 import { resolveDefaultLanding } from "@/lib/settings";
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const rawNext = searchParams.get("next");
-  const next =
-    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
-      ? rawNext
-      : "/";
+  const [next] = useState(() => {
+    if (typeof window === "undefined") return "/";
+    const paramNext = new URLSearchParams(window.location.search).get("next");
+    if (paramNext && paramNext.startsWith("/") && !paramNext.startsWith("//")) {
+      return paramNext;
+    }
+    return "/";
+  });
 
   useEffect(() => {
-    if (searchParams.get("error") === "auth") {
+    if (new URLSearchParams(window.location.search).get("error") === "auth") {
       toast.error("Something went wrong. Please try again.");
     }
-  }, [searchParams]);
+  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -87,6 +90,11 @@ export default function LoginPage() {
   };
 
   const handleMagicLink = async () => {
+    if (!email) {
+      toast.error("Enter your email address first.");
+      return;
+    }
+
     setLoading("magic");
 
     const supabase = createClient();
@@ -113,9 +121,7 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex flex-col justify-between p-6 sm:p-12 lg:p-16 bg-background">
         {/* Brand Header */}
         <div className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center text-white shadow-xs">
-            <Sparkles className="h-5 w-5" />
-          </div>
+          <LogoMark className="h-9 w-auto" />
           <span className="font-bold text-xl tracking-tight">FeedbackLoop</span>
         </div>
 
@@ -228,20 +234,18 @@ export default function LoginPage() {
                     required
                   />
                   <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="icon"
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none select-none hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                   >
                     {showPassword ? (
                       <EyeOff className="h-4 w-4" />
                     ) : (
                       <Eye className="h-4 w-4" />
                     )}
-                  </Button>
+                  </button>
                 </div>
               </FieldContent>
             </Field>
@@ -279,53 +283,7 @@ export default function LoginPage() {
       </div>
 
       {/* Right Column: Hero Visual Illustration */}
-      <div className="hidden lg:flex w-1/2 bg-secondary/60 relative items-center justify-center p-12 overflow-hidden border-l border-border/40">
-        {/* Background decorative elements */}
-        <div className="absolute top-20 right-20 h-40 w-40 rounded-full bg-primary/10 filter blur-3xl" />
-        <div className="absolute bottom-20 left-20 h-40 w-40 rounded-full bg-primary/15 filter blur-3xl" />
-
-        {/* Floating Mockup Illustration */}
-        <div className="relative w-full max-w-lg space-y-4">
-          {/* Main Card */}
-          <Card className="shadow-xl bg-white/90 backdrop-blur-sm overflow-hidden p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-                <Heart className="h-5 w-5 fill-primary" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm">Customer Feedback</h3>
-                <p className="text-xs text-muted-foreground">
-                  Real-time AI Sentiment
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2 bg-muted/50 p-3.5 rounded-xl border border-border/50 text-xs text-foreground/80">
-              <p>
-                &ldquo;The product quality is outstanding! Fast shipping and
-                excellent support.&rdquo;
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between pt-1">
-              <div className="flex text-amber-400 gap-1">
-                {[...Array(5)].map((_, i) => (
-                  <Star key={i} className="h-4 w-4 fill-amber-400" />
-                ))}
-              </div>
-              <span className="text-xs font-semibold text-primary">
-                Verified Review
-              </span>
-            </div>
-          </Card>
-
-          {/* Floating Accent Badge */}
-          <div className="absolute -bottom-6 -left-6 bg-primary text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
-            <span>AI Summarizer Active</span>
-          </div>
-        </div>
-      </div>
+      <AuthVisual variant="login" />
     </div>
   );
 }

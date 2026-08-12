@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
-  Sparkles,
   Loader2,
   Lock,
   Eye,
@@ -13,6 +12,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LogoMark } from "@/components/logo-mark";
 import { Input } from "@/components/ui/input";
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { createClient } from "@/lib/supabase/client";
@@ -65,9 +65,7 @@ export default function UpdatePasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-md space-y-6">
         <div className="flex items-center justify-center gap-2.5">
-          <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center text-white shadow-xs">
-            <Sparkles className="h-5 w-5" />
-          </div>
+          <LogoMark className="h-9 w-auto" />
           <span className="font-bold text-xl tracking-tight">FeedbackLoop</span>
         </div>
         {children}

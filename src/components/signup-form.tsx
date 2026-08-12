@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import {
   Mail,
   Lock,
-  Sparkles,
   Loader2,
   Eye,
   EyeOff,
@@ -15,6 +14,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LogoMark } from "@/components/logo-mark";
 import { Input } from "@/components/ui/input";
 import {
   Field,
@@ -22,6 +22,7 @@ import {
   FieldError,
   FieldLabel,
 } from "@/components/ui/field";
+import { AuthVisual } from "@/components/auth-visual";
 import {
   InputOTP,
   InputOTPGroup,
@@ -216,21 +217,20 @@ export default function SignupPage() {
     ).padStart(2, "0")}`;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md space-y-6">
-        {/* Brand */}
-        <div className="flex items-center justify-center gap-2.5">
-          <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center text-white shadow-xs">
-            <Sparkles className="h-5 w-5" />
-          </div>
+    <div className="min-h-screen w-full flex bg-background">
+      {/* Left Column: Brand, Form & OAuth */}
+      <div className="w-full lg:w-1/2 flex flex-col justify-between p-6 sm:p-12 lg:p-16 bg-background">
+        {/* Brand Header */}
+        <div className="flex items-center gap-2.5">
+          <LogoMark className="h-9 w-auto" />
           <span className="font-bold text-xl tracking-tight">FeedbackLoop</span>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-6 sm:p-8 space-y-6">
+        <div className="max-w-md w-full mx-auto my-8 space-y-6">
           {step === "details" ? (
             <>
-              <div className="space-y-1.5 text-center">
-                <h1 className="text-2xl font-bold tracking-tight">
+              <div className="space-y-1.5 text-left">
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
                   Create your account
                 </h1>
                 <p className="text-sm text-muted-foreground">
@@ -325,20 +325,18 @@ export default function SignupPage() {
                         required
                       />
                       <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                      <Button
+                      <button
                         type="button"
-                        variant="ghost"
-                        size="icon"
                         onClick={() => setShowPassword((v) => !v)}
                         aria-label={showPassword ? "Hide password" : "Show password"}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none select-none hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                       >
                         {showPassword ? (
                           <EyeOff className="h-4 w-4" />
                         ) : (
                           <Eye className="h-4 w-4" />
                         )}
-                      </Button>
+                      </button>
                     </div>
                   </FieldContent>
                 </Field>
@@ -359,22 +357,20 @@ export default function SignupPage() {
                         required
                       />
                       <Lock className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                      <Button
+                      <button
                         type="button"
-                        variant="ghost"
-                        size="icon"
                         onClick={() => setShowConfirmPassword((v) => !v)}
                         aria-label={
                           showConfirmPassword ? "Hide password" : "Show password"
                         }
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                        className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none select-none hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                       >
                         {showConfirmPassword ? (
                           <EyeOff className="h-4 w-4" />
                         ) : (
                           <Eye className="h-4 w-4" />
                         )}
-                      </Button>
+                      </button>
                     </div>
                   </FieldContent>
                 </Field>
@@ -391,11 +387,11 @@ export default function SignupPage() {
             </>
           ) : (
             <>
-              <div className="space-y-1.5 text-center">
-                <div className="mx-auto h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+              <div className="space-y-1.5 text-left">
+                <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center mb-2">
                   <KeyRound className="h-5 w-5 text-primary" />
                 </div>
-                <h1 className="text-2xl font-bold tracking-tight">
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
                   Enter the verification code
                 </h1>
                 <p className="text-sm text-muted-foreground">
@@ -494,7 +490,15 @@ export default function SignupPage() {
             </Link>
           </p>
         </div>
+
+        {/* Footer info */}
+        <div className="text-xs text-muted-foreground text-center lg:text-left">
+          © {new Date().getFullYear()} FeedbackLoop Inc. All rights reserved.
+        </div>
       </div>
+
+      {/* Right Column: Hero Visual Illustration */}
+      <AuthVisual variant="signup" />
     </div>
   );
 }

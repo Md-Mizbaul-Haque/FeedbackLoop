@@ -10,9 +10,10 @@ import {
   Settings,
   LogOut,
   LogIn,
-  Sparkles,
+  CreditCard,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { LogoMark } from "@/components/logo-mark";
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +31,7 @@ const navItems = [
   { name: "Home", href: "/", icon: LayoutDashboard },
   { name: "My Summaries", href: "/summaries", icon: FileText },
   { name: "Profile", href: "/profile", icon: UserIcon },
+  { name: "Pricing", href: "/pricing", icon: CreditCard },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -67,9 +69,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" render={<Link href="/" />}>
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
-                <Sparkles className="h-4 w-4" />
-              </div>
+              <LogoMark />
               <span className="font-bold text-lg tracking-tight">FeedbackLoop</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
