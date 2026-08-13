@@ -6,6 +6,39 @@ export const dynamic = "force-dynamic";
 
 const LS_API_BASE = "https://api.lemonsqueezy.com/v1";
 
+// P2-4: the post-payment redirect must always point at a site we control.
+// Only NEXT_PUBLIC_SITE_URL is trusted; the request Origin is never used in
+// production, so a crafted Origin header cannot turn the checkout redirect
+// into an open redirect. In development a loopback Origin is accepted as an
+// explicit convenience so local testing keeps working without extra config.
+export function trustedCheckoutSuccessUrl(originHeader: string | null): string | null {
+  const configured = (process.env.NEXT_PUBLIC_SITE_URL ?? "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return `${parsed.origin}/pricing?checkout=success`;
+      }
+    } catch {
+      // An invalid configured value must fail safe, never fall back.
+    }
+    return null;
+  }
+
+  if (process.env.NODE_ENV === "development") {
+    const origin = (originHeader ?? "").trim().replace(/\/+$/, "");
+    if (
+      /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
+      /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)
+    ) {
+      return `${origin}/pricing?checkout=success`;
+    }
+  }
+  return null;
+}
+
 function missingConfig(): boolean {
   return !(
     process.env.LEMONSQUEEZY_API_KEY &&
@@ -39,9 +72,13 @@ export async function POST(req: NextRequest) {
       );
     }
   }
-  const origin = req.headers.get("origin") ?? "";
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || origin || "";
-  const successUrl = `${siteUrl}/pricing?checkout=success`;
+  const successUrl = trustedCheckoutSuccessUrl(req.headers.get("origin"));
+  if (!successUrl) {
+    return NextResponse.json(
+      { error: "Checkout is not configured yet." },
+      { status: 500 },
+    );
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

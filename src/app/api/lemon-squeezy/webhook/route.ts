@@ -18,6 +18,7 @@ interface LsWebhookPayload {
   meta?: {
     event_name?: string;
     custom_data?: Record<string, unknown> | string;
+    test_mode?: boolean;
   };
   data?: {
     id?: string;
@@ -195,6 +196,25 @@ interface PlanState {
   subscriptionId?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Out-of-order protection (P1-A)
+// ---------------------------------------------------------------------------
+// Lemon Squeezy retries deliveries and may deliver events out of order (an
+// older subscription_updated arriving after a newer cancelled event). Each
+// resource carries attributes.updated_at — microsecond precision, bumped on
+// every change — which we store in user_credits.ls_updated_at as the
+// authoritative "state as of" timestamp. Events whose timestamp is older than
+// the recorded state are ignored, so a delayed delivery can never roll back
+// newer state; exact duplicate deliveries are already deduplicated by the
+// subscription_events unique key. A missing/unparseable timestamp fails safe:
+// the event may only apply when no timestamped state has ever been recorded.
+function parseOccurrenceTs(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string" || !raw) return null;
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
 function toRow(user_id: string, state: PlanState): Record<string, unknown> {
   const row: Record<string, unknown> = {
     user_id,
@@ -226,16 +246,53 @@ function serviceClient() {
   );
 }
 
-async function applyPlan(user_id: string, state: PlanState): Promise<void> {
+async function applyPlanState(
+  user_id: string,
+  state: PlanState,
+  occurrenceTs: string | null,
+  event: string,
+  subscriptionId: string | null,
+): Promise<void> {
   const supabase = serviceClient();
-  const { error } = await supabase
-    .from("user_credits")
-    .upsert(toRow(user_id, state), { onConflict: "user_id" });
+  const row = toRow(user_id, state);
+  if (occurrenceTs) row.ls_updated_at = occurrenceTs;
 
-  if (error) {
-    console.error(`[ls-webhook] plan update failed for ${user_id}:`, error);
-    throw error;
+  // Atomic compare-and-set: only a row whose recorded timestamp is older (or
+  // not yet set) may be overwritten. The predicate and the write are a single
+  // database statement, so two concurrent deliveries cannot both win and the
+  // guard holds across serverless instances.
+  const guard = occurrenceTs
+    ? `ls_updated_at.is.null,ls_updated_at.lte.${occurrenceTs}`
+    : "ls_updated_at.is.null";
+  const { data: updated, error: updateError } = await supabase
+    .from("user_credits")
+    .update(row)
+    .eq("user_id", user_id)
+    .or(guard)
+    .select("user_id");
+  if (updateError) {
+    console.error(`[ls-webhook] plan update failed for ${user_id}:`, updateError);
+    throw updateError;
   }
+  if (updated && updated.length > 0) return;
+
+  // No row yet (first event for this user) — insert it, ignoring a concurrent
+  // winner of the race (upsert + ignoreDuplicates = insert-if-absent).
+  const { data: inserted, error: insertError } = await supabase
+    .from("user_credits")
+    .upsert(row, { onConflict: "user_id", ignoreDuplicates: true })
+    .select("user_id");
+  if (insertError) {
+    console.error(`[ls-webhook] plan insert failed for ${user_id}:`, insertError);
+    throw insertError;
+  }
+  if (inserted && inserted.length > 0) return;
+
+  // The row exists but its recorded state is at least as new as this event:
+  // an out-of-order delivery. Never roll back newer state.
+  console.warn(
+    `[ls-webhook] ignoring out-of-order ${event} (subscription ${subscriptionId ?? "unknown"}) for user ${user_id} — recorded state is newer than the event`,
+  );
 }
 
 async function currentPlan(user_id: string): Promise<"free" | "pro"> {
@@ -301,6 +358,35 @@ export async function POST(req: NextRequest) {
   const dataRef = payload.data ?? {};
   const ids = extractIds(dataRef);
   const lsEventId = buildLsEventId(event, dataRef);
+
+  // -------------------------------------------------------------------------
+  // Test-mode protection (P2-3)
+  // -------------------------------------------------------------------------
+  // Lemon Squeezy marks test-mode deliveries with meta.test_mode = true; they
+  // are signed with the same secret as production events. A stray test event
+  // must never grant (or revoke) Pro in production, so test events are dropped
+  // unless explicitly enabled with LEMONSQUEEZY_ALLOW_TEST_MODE=true (local
+  // development only). Rejected events are audited in subscription_events and
+  // logged, without leaking any payload secrets.
+  if (payload.meta?.test_mode === true && process.env.LEMONSQUEEZY_ALLOW_TEST_MODE !== "true") {
+    console.warn(
+      `[ls-webhook] rejecting test_mode ${event} (subscription ${ids.subscriptionId ?? "unknown"}) — test events are not accepted in this environment`,
+    );
+    if (lsEventId) {
+      try {
+        await supabase.from("subscription_events").insert({
+          ls_event_id: `test:${lsEventId}`,
+          user_id,
+          event_name: event,
+          payload,
+        });
+      } catch (err) {
+        console.error("[ls-webhook] test event audit insert failed:", err);
+      }
+    }
+    return NextResponse.json({ received: true, ignored: "test_mode" });
+  }
+
   if (lsEventId) {
     const { error: logError } = await supabase.from("subscription_events").insert({
       ls_event_id: lsEventId,
@@ -334,6 +420,7 @@ export async function POST(req: NextRequest) {
   const status = attributes.status ?? null;
   const renewsAt = attributes.renews_at ?? null;
   const endsAt = attributes.ends_at ?? null;
+  const occurrenceTs = parseOccurrenceTs(attributes.updated_at);
   const variantId =
     attributes.variant_id ??
     attributes.first_subscription_item?.variant_id ??
@@ -364,33 +451,51 @@ export async function POST(req: NextRequest) {
       if (!proVariantEvent) {
         return ignoredVariant(event, ids.subscriptionId, eventVariant);
       }
-      await applyPlan(user_id, {
-        plan: "pro",
-        status: coerceStatus(status, "active"),
-        renewsAt,
-        endsAt,
-        cancelAtPeriodEnd: false,
-        variantId: eventVariant,
-        billingInterval,
-        ...ids,
-      });
+      await applyPlanState(
+        user_id,
+        {
+          plan: "pro",
+          status: coerceStatus(status, "active"),
+          renewsAt,
+          endsAt,
+          cancelAtPeriodEnd: false,
+          variantId: eventVariant,
+          billingInterval,
+          ...ids,
+        },
+        occurrenceTs,
+        event,
+        ids.subscriptionId,
+      );
       const mail = grantEmails[event];
       if (mail) await sendBestEffort(mail, email);
       return NextResponse.json({ received: true });
     }
 
     // --- Events that revoke Pro ---------------------------------------------
+    // Variant validation applies to revocations too (P1-B): an expired, paused
+    // or refunded event for any OTHER product or a one-time purchase must
+    // never downgrade a paying Pro customer.
     if (event in revokeEmails) {
-      await applyPlan(user_id, {
-        plan: "free",
-        status: coerceStatus(status, "expired"),
-        renewsAt: null,
-        endsAt: status === "active" ? null : endsAt,
-        cancelAtPeriodEnd: false,
-        variantId: variantId == null ? null : String(variantId),
-        billingInterval,
-        ...ids,
-      });
+      if (!proVariantEvent) {
+        return ignoredVariant(event, ids.subscriptionId, eventVariant);
+      }
+      await applyPlanState(
+        user_id,
+        {
+          plan: "free",
+          status: coerceStatus(status, "expired"),
+          renewsAt: null,
+          endsAt: status === "active" ? null : endsAt,
+          cancelAtPeriodEnd: false,
+          variantId: variantId == null ? null : String(variantId),
+          billingInterval,
+          ...ids,
+        },
+        occurrenceTs,
+        event,
+        ids.subscriptionId,
+      );
       const mail = revokeEmails[event];
       if (mail) await sendBestEffort(mail, email);
       return NextResponse.json({ received: true });
@@ -401,16 +506,22 @@ export async function POST(req: NextRequest) {
       if (!proVariantEvent) {
         return ignoredVariant(event, ids.subscriptionId, eventVariant);
       }
-      await applyPlan(user_id, {
-        plan: "pro",
-        status: "cancelled",
-        renewsAt: null,
-        endsAt,
-        cancelAtPeriodEnd: true,
-        variantId: eventVariant,
-        billingInterval,
-        ...ids,
-      });
+      await applyPlanState(
+        user_id,
+        {
+          plan: "pro",
+          status: "cancelled",
+          renewsAt: null,
+          endsAt,
+          cancelAtPeriodEnd: true,
+          variantId: eventVariant,
+          billingInterval,
+          ...ids,
+        },
+        occurrenceTs,
+        event,
+        ids.subscriptionId,
+      );
       await sendBestEffort("cancelled", email);
       return NextResponse.json({ received: true });
     }
@@ -420,16 +531,22 @@ export async function POST(req: NextRequest) {
       if (!proVariantEvent) {
         return ignoredVariant(event, ids.subscriptionId, eventVariant);
       }
-      await applyPlan(user_id, {
-        plan: await currentPlan(user_id),
-        status: coerceStatus(status, "past_due"),
-        renewsAt,
-        endsAt: endsAt ?? null,
-        cancelAtPeriodEnd: attributes.cancelled === true,
-        variantId: eventVariant,
-        billingInterval,
-        ...ids,
-      });
+      await applyPlanState(
+        user_id,
+        {
+          plan: await currentPlan(user_id),
+          status: coerceStatus(status, "past_due"),
+          renewsAt,
+          endsAt: endsAt ?? null,
+          cancelAtPeriodEnd: attributes.cancelled === true,
+          variantId: eventVariant,
+          billingInterval,
+          ...ids,
+        },
+        occurrenceTs,
+        event,
+        ids.subscriptionId,
+      );
       await sendBestEffort("payment_failed", email);
       return NextResponse.json({ received: true });
     }
@@ -440,42 +557,60 @@ export async function POST(req: NextRequest) {
         return ignoredVariant(event, ids.subscriptionId, eventVariant);
       }
       if (status === "expired") {
-        await applyPlan(user_id, {
-          plan: "free",
-          status: "expired",
-          renewsAt: null,
-          endsAt: endsAt ?? null,
-          cancelAtPeriodEnd: false,
-          variantId: eventVariant,
-          billingInterval,
-          ...ids,
-        });
+        await applyPlanState(
+          user_id,
+          {
+            plan: "free",
+            status: "expired",
+            renewsAt: null,
+            endsAt: endsAt ?? null,
+            cancelAtPeriodEnd: false,
+            variantId: eventVariant,
+            billingInterval,
+            ...ids,
+          },
+          occurrenceTs,
+          event,
+          ids.subscriptionId,
+        );
         await sendBestEffort("expired", email);
       } else if (status === "paused") {
-        await applyPlan(user_id, {
-          plan: "free",
-          status: "paused",
-          renewsAt: null,
-          endsAt: endsAt ?? null,
-          cancelAtPeriodEnd: false,
-          variantId: eventVariant,
-          billingInterval,
-          ...ids,
-        });
+        await applyPlanState(
+          user_id,
+          {
+            plan: "free",
+            status: "paused",
+            renewsAt: null,
+            endsAt: endsAt ?? null,
+            cancelAtPeriodEnd: false,
+            variantId: eventVariant,
+            billingInterval,
+            ...ids,
+          },
+          occurrenceTs,
+          event,
+          ids.subscriptionId,
+        );
       } else {
         const retained = await currentPlan(user_id);
         const s = coerceStatus(status, "active");
-        await applyPlan(user_id, {
-          plan: s === "cancelled" ? "pro" : retained,
-          status: s,
-          renewsAt,
-          endsAt,
-          cancelAtPeriodEnd:
-            s === "cancelled" ? true : attributes.cancelled === true,
-          variantId: eventVariant,
-          billingInterval,
-          ...ids,
-        });
+        await applyPlanState(
+          user_id,
+          {
+            plan: s === "cancelled" ? "pro" : retained,
+            status: s,
+            renewsAt,
+            endsAt,
+            cancelAtPeriodEnd:
+              s === "cancelled" ? true : attributes.cancelled === true,
+            variantId: eventVariant,
+            billingInterval,
+            ...ids,
+          },
+          occurrenceTs,
+          event,
+          ids.subscriptionId,
+        );
       }
       return NextResponse.json({ received: true });
     }

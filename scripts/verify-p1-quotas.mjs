@@ -326,10 +326,30 @@ try {
   check("pro quota window cases", false, String(e?.message ?? e));
 }
 
-// ---- 6. concurrency (P1-2) ------------------------------------------------
+// ---- 6. concurrency (P1-2 + P1-C leases) -----------------------------------
+// Since P1-C, in-flight runs are tracked as expiring leases (analysis_leases)
+// created by successful reserves, not by writing the concurrent counter
+// directly — so a 4th in-flight run is simulated with three real reserves.
 console.log("\n== 6. concurrency ==");
 try {
-  await setCredits(userId, { concurrent: PRO_CONCURRENCY });
+  await setCredits(userId, {
+    concurrent: 0,
+    pro_daily_start: null,
+    pro_daily_used: 0,
+    pro_month_start: null,
+    pro_month_used: 0,
+  });
+  const inflight = [];
+  for (let i = 0; i < PRO_CONCURRENCY; i++) {
+    const r = await reserve(user, {
+      p_limit: FREE_LIMIT,
+      p_pro_daily_limit: PRO_DAILY,
+      p_pro_monthly_limit: PRO_MONTHLY,
+      p_concurrency_limit: PRO_CONCURRENCY,
+    });
+    inflight.push(r);
+  }
+  check("pro: 3 in-flight reserves ok", inflight.every((r) => r === "ok"), `[${inflight}]`);
   const blocked = await reserve(user, {
     p_limit: FREE_LIMIT,
     p_pro_daily_limit: PRO_DAILY,
@@ -338,6 +358,11 @@ try {
   });
   check("pro: concurrency cap blocks a 4th in-flight run", blocked === "concurrency", `verdict ${blocked}`);
 
+  // Since P1-C, the cap lives in expiring leases, not the mirror counter —
+  // draining the 3 in-flight runs first puts the user in a clean state for
+  // the parallel race below (resetting the mirror alone would leave the 3
+  // active leases blocking every parallel attempt).
+  for (let i = 0; i < PRO_CONCURRENCY; i++) await release(user, false);
   await setCredits(userId, { concurrent: 0, pro_daily_start: null, pro_daily_used: 0, pro_month_start: null, pro_month_used: 0 });
   const verdicts = await Promise.all(
     Array.from({ length: 10 }, () =>

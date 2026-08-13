@@ -7,8 +7,7 @@ import {
   Plus,
   Eye,
   MoreVertical,
-  ChevronLeft,
-  ChevronRight,
+  Loader2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -131,59 +130,96 @@ export function MySummaries() {
     return () => clearTimeout(timer);
   }, [searchQuery, timeRange]);
 
-  const applyRows = useCallback(
-    (rows: { id: string; title: string; reviews_count: number; keywords: { label: string }[]; created_at: string }[], error: { message: string } | null) => {
-      if (error) {
-        console.error(error);
-        toast.error("Failed to load summaries.");
-      }
-      setSummaries(
-        (rows ?? []).map((row) => ({
-          id: row.id,
-          title: row.title,
-          reviewsCount: row.reviews_count,
-          keywords: (row.keywords ?? []).map(
-            (kw, index) => ({
-              label: kw.label,
-              colorClass: colorPalettes[index % colorPalettes.length],
-            }),
-          ),
-          createdAt: formatDate(row.created_at),
-          createdAtRaw: row.created_at,
-        })),
-      );
-      setLoading(false);
-    },
-    [],
-  );
+  function toSummaryItems(
+    rows: { id: string; title: string; reviews_count: number; keywords: { label: string }[]; created_at: string }[],
+  ): SummaryItem[] {
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      reviewsCount: row.reviews_count,
+      keywords: (row.keywords ?? []).map(
+        (kw, index) => ({
+          label: kw.label,
+          colorClass: colorPalettes[index % colorPalettes.length],
+        }),
+      ),
+      createdAt: formatDate(row.created_at),
+      createdAtRaw: row.created_at,
+    }));
+  }
 
-  useEffect(() => {
-    const supabase = createClient();
-    let cancelled = false;
+  // P2-7: server-side keyset pagination via list_summaries_page. The RPC is
+  // auth.uid()-guarded and orders by (created_at desc, id desc) so pages are
+  // stable — no skipped or duplicated rows when new summaries are added
+  // between pages. Search and time-range filters stay client-side and apply
+  // to the accumulated pages.
+  const PAGE_SIZE = 20;
+  const [nextCursor, setNextCursor] = useState<{
+    createdAt: string;
+    id: string;
+  } | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-    const load = async () => {
+  const fetchPage = useCallback(
+    async (cursor: { createdAt: string; id: string } | null, append: boolean) => {
+      const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
-
-      if (cancelled) return;
 
       if (!user) {
         setSummaries([]);
         setSignedIn(false);
         setLoading(false);
+        setLoadingMore(false);
         return;
       }
 
       setSignedIn(true);
-      const { data, error } = await supabase
-        .from("summaries")
-        .select("id, title, reviews_count, keywords, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
 
+      const { data, error } = await supabase.rpc("list_summaries_page", {
+        p_page_size: PAGE_SIZE,
+        p_cursor_created_at: cursor?.createdAt ?? null,
+        p_cursor_id: cursor?.id ?? null,
+      });
+
+      if (error) {
+        console.error(error);
+        toast.error("Failed to load summaries.");
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
+
+      const rows = (data ?? []) as {
+        id: string;
+        title: string;
+        reviews_count: number;
+        keywords: { label: string }[];
+        created_at: string;
+        has_more: boolean;
+      }[];
+
+      const items = toSummaryItems(rows);
+      setSummaries((prev) => (append ? [...prev, ...items] : items));
+      const last = rows[rows.length - 1];
+      setNextCursor(
+        last ? { createdAt: last.created_at, id: last.id } : null,
+      );
+      setHasMore(rows.length > 0 ? rows[rows.length - 1].has_more : false);
+      setLoading(false);
+      setLoadingMore(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
       if (cancelled) return;
-      applyRows(data ?? [], error);
+      await fetchPage(null, false);
     };
 
     load();
@@ -191,26 +227,20 @@ export function MySummaries() {
     return () => {
       cancelled = true;
     };
-  }, [applyRows]);
+  }, [fetchPage]);
 
   const reload = useCallback(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
-        setSummaries([]);
-        setSignedIn(false);
-        setLoading(false);
-        return;
-      }
-      setSignedIn(true);
-      supabase
-        .from("summaries")
-        .select("id, title, reviews_count, keywords, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .then(({ data, error }) => applyRows(data ?? [], error));
-    });
-  }, [applyRows]);
+    setSummaries([]);
+    setNextCursor(null);
+    setHasMore(false);
+    fetchPage(null, false);
+  }, [fetchPage]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || !nextCursor) return;
+    setLoadingMore(true);
+    fetchPage(nextCursor, true);
+  }, [fetchPage, loadingMore, nextCursor]);
 
   const handleDelete = async (summary: SummaryItem) => {
     setDeleting(true);
@@ -446,34 +476,31 @@ export function MySummaries() {
             </Table>
           </div>
 
-          {/* Pagination */}
-          <div className="flex items-center justify-center gap-2 pt-2">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 border-border"
-              disabled
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-
-            <Button
-              variant="secondary"
-              size="sm"
-              className="h-8 w-8 p-0 bg-primary/10 text-primary font-semibold"
-            >
-              1
-            </Button>
-
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 border-border"
-              disabled
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+          {/* Pagination (P2-7): server-side keyset paging via Load More */}
+          {(hasMore || loadingMore) && (
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="border-border"
+                disabled={loadingMore}
+                onClick={loadMore}
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Loading…
+                  </>
+                ) : (
+                  "Load more"
+                )}
+              </Button>
+            </div>
+          )}
+          {!hasMore && !loading && summaries.length > 0 && (
+            <p className="pt-2 text-center text-xs text-muted-foreground">
+              All {summaries.length} summaries shown.
+            </p>
+          )}
         </CardContent>
       </Card>
 

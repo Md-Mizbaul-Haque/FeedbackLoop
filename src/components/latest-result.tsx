@@ -42,28 +42,51 @@ export function LatestResult() {
 
     setSaving(true);
     try {
-      const { data, error } = await supabase
-        .from("summaries")
-        .insert({
-          user_id: user.id,
-          title: summary.title,
-          reviews_count: summary.reviews_count,
-          keywords: summary.keywords,
-          summary_points: summary.summary_points,
-          positive_sentiment_pct: summary.positive_sentiment_pct ?? 0,
-          average_rating: summary.average_rating ?? 0,
-          reviews: summary.reviews ?? null,
-          widget_id: summary.widget_id,
-          analysis: summary.analysis ?? null,
-        })
-        .select("id")
-        .single();
+      // P2-1: widget_id is globally unique (summaries_widget_id_unique_idx).
+      // The id is generated client-side; if a freak collision violates the
+      // constraint, retry with a fresh id instead of failing the save.
+      let savedId: string | null = null;
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const widgetId =
+          attempt === 0
+            ? summary.widget_id
+            : typeof crypto !== "undefined" && "randomUUID" in crypto
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-      if (error) throw error;
+        const { data, error } = await supabase
+          .from("summaries")
+          .insert({
+            user_id: user.id,
+            title: summary.title,
+            reviews_count: summary.reviews_count,
+            keywords: summary.keywords,
+            summary_points: summary.summary_points,
+            positive_sentiment_pct: summary.positive_sentiment_pct ?? 0,
+            average_rating: summary.average_rating ?? 0,
+            reviews: summary.reviews ?? null,
+            widget_id: widgetId,
+            analysis: summary.analysis ?? null,
+          })
+          .select("id")
+          .single();
+
+        if (!error && data) {
+          savedId = data.id;
+          break;
+        }
+        lastError = error;
+        if (error?.code !== "23505") break;
+      }
+
+      if (!savedId) {
+        throw lastError ?? new Error("Failed to save summary.");
+      }
 
       sessionStorage.removeItem(STORAGE_KEY);
       toast.success("Summary saved to your account!");
-      router.replace(`/results?id=${data.id}`);
+      router.replace(`/results?id=${savedId}`);
     } catch (err) {
       console.error(err);
       toast.error("Failed to save summary. Please try again.");

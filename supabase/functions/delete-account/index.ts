@@ -87,13 +87,16 @@ Deno.serve(async (req: Request) => {
 
   // Best-effort: remove avatar files so storage never outlives the account.
   try {
-    const { data: avatarFiles } = await admin.storage
-      .from("avatars")
-      .list(user.id, { limit: 100 });
-    if (avatarFiles && avatarFiles.length > 0) {
-      await admin.storage
-        .from("avatars")
-        .remove(avatarFiles.map((file) => `${user.id}/${file.name}`));
+    const bucket = admin.storage.from("avatars");
+    // Storage lists at most `limit` objects per call; keep paging until a
+    // short page proves the folder is drained so no files are ever left behind.
+    for (;;) {
+      const { data: avatarFiles } = await bucket.list(user.id, { limit: 100 });
+      if (!avatarFiles || avatarFiles.length === 0) break;
+      await bucket.remove(
+        avatarFiles.map((file) => `${user.id}/${file.name}`),
+      );
+      if (avatarFiles.length < 100) break;
     }
   } catch (err) {
     console.error("failed to delete avatar files:", err);

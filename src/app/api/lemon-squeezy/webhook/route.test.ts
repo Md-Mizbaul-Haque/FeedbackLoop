@@ -16,38 +16,85 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 
 interface FakeOptions {
   knownUser?: boolean;
-  currentPlan?: "free" | "pro";
+  // Existing user_credits row; null (default) means no row yet.
+  credits?: Record<string, unknown> | null;
 }
 
 function makeFakeSupabase(opts: FakeOptions = {}) {
   const seenKeys = new Set<string>();
-  const upserts: Record<string, unknown>[] = [];
   const inserts: { table: string; row: Record<string, unknown> }[] = [];
+  const updates: { table: string; row: Record<string, unknown> }[] = [];
+  let credits: Record<string, unknown> | null = opts.credits ?? null;
   const fake = {
     seenKeys,
-    upserts,
     inserts,
+    updates,
+    credits() {
+      return credits;
+    },
     from(table: string) {
       return {
-        insert: async (row: Record<string, unknown>) => {
-          inserts.push({ table, row });
+        insert: (row: Record<string, unknown>) => {
           if (table === "subscription_events") {
-            const key = String(row.ls_event_id);
-            if (seenKeys.has(key)) {
-              return { data: null, error: { code: "23505", message: "duplicate" } };
-            }
-            seenKeys.add(key);
+            return (async () => {
+              inserts.push({ table, row });
+              const key = String(row.ls_event_id);
+              if (seenKeys.has(key)) {
+                return { data: null, error: { code: "23505", message: "duplicate" } };
+              }
+              seenKeys.add(key);
+              return { data: [row], error: null };
+            })();
           }
-          return { data: [row], error: null };
+          return { data: null, error: null };
         },
-        upsert: async (row: Record<string, unknown>) => {
-          upserts.push(row);
-          return { data: [row], error: null };
+        upsert: (row: Record<string, unknown>) => ({
+          select: async () => {
+            // insert-if-absent (onConflict + ignoreDuplicates): no-op when a
+            // row already exists (the guarded update already failed above).
+            if (credits !== null) {
+              return { data: [], error: null };
+            }
+            credits = { ...row };
+            return { data: [{ user_id: row.user_id }], error: null };
+          },
+        }),
+        update: (row: Record<string, unknown>) => {
+          const filters: string[] = [];
+          const builder = {
+            eq: () => builder,
+            or: (cond: string) => {
+              filters.push(cond);
+              return builder;
+            },
+            select: async () => {
+              // Apply only when the row exists and the compare-and-set guard
+              // passes: ls_updated_at is null, or recorded <= incoming event.
+              const guard = filters[0] ?? "";
+              const lteMatch = guard.match(/ls_updated_at\.lte\.(.+)$/);
+              let pass = false;
+              if (credits !== null) {
+                const stored = credits.ls_updated_at ?? null;
+                if (stored == null) {
+                  pass = guard.includes("ls_updated_at.is.null");
+                } else if (lteMatch) {
+                  pass = stored <= lteMatch[1];
+                }
+              }
+              if (pass) {
+                credits = { ...credits, ...row };
+                updates.push({ table, row });
+                return { data: [{ user_id: row.user_id }], error: null };
+              }
+              return { data: [], error: null };
+            },
+          };
+          return builder;
         },
         select: () => ({
           eq: () => ({
             maybeSingle: async () => ({
-              data: { plan: opts.currentPlan ?? "free" },
+              data: credits ?? null,
               error: null,
             }),
           }),
@@ -83,10 +130,12 @@ interface SubEventOverrides {
   type?: string;
   status?: string;
   variant?: number | null;
-  updatedAt?: string;
+  updatedAt?: string | null;
   endsAt?: string | null;
   renewsAt?: string | null;
   customUserId?: string | null;
+  testMode?: boolean;
+  orderItemVariant?: number | null;
 }
 
 function subscriptionEvent(
@@ -97,22 +146,34 @@ function subscriptionEvent(
     overrides.customUserId === null
       ? {}
       : { user_id: overrides.customUserId ?? USER_ID, interval: "month" };
+  const meta: Record<string, unknown> = {
+    event_name: eventName,
+    custom_data: customData,
+  };
+  if (overrides.testMode === true) meta.test_mode = true;
+  const attributes: Record<string, unknown> = {
+    customer_id: 99001,
+    user_email: "buyer@example.com",
+    status: overrides.status ?? "active",
+    renews_at: overrides.renewsAt ?? null,
+    ends_at: overrides.endsAt ?? null,
+    cancelled: false,
+  };
+  if (overrides.updatedAt !== null) {
+    attributes.updated_at = overrides.updatedAt ?? "2026-01-01T00:00:00.000000Z";
+  }
+  if (overrides.orderItemVariant !== undefined && overrides.type === "orders") {
+    attributes.first_order_item = { variant_id: overrides.orderItemVariant };
+  } else {
+    attributes.variant_id =
+      overrides.variant === undefined ? Number(PRO_VARIANT) : overrides.variant;
+  }
   return {
-    meta: { event_name: eventName, custom_data: customData },
+    meta,
     data: {
       id: overrides.id ?? "777001",
       type: overrides.type ?? "subscriptions",
-      attributes: {
-        customer_id: 99001,
-        user_email: "buyer@example.com",
-        status: overrides.status ?? "active",
-        renews_at: overrides.renewsAt ?? null,
-        ends_at: overrides.endsAt ?? null,
-        cancelled: false,
-        variant_id:
-          overrides.variant === undefined ? Number(PRO_VARIANT) : overrides.variant,
-        updated_at: overrides.updatedAt ?? "2026-01-01T00:00:00.000000Z",
-      },
+      attributes,
     },
   };
 }
@@ -152,11 +213,11 @@ describe("Lemon Squeezy webhook", () => {
     const res = await deliver(subscriptionEvent("subscription_created"));
 
     expect(res.status).toBe(200);
-    expect(fake.upserts).toHaveLength(1);
-    expect(fake.upserts[0]).toMatchObject({
+    expect(fake.credits()).toMatchObject({
       plan: "pro",
       subscription_status: "active",
       variant_id: PRO_VARIANT,
+      ls_updated_at: "2026-01-01T00:00:00.000Z",
     });
   });
 
@@ -167,20 +228,19 @@ describe("Lemon Squeezy webhook", () => {
     expect((await deliver(payload)).status).toBe(200);
     expect((await deliver(payload)).status).toBe(200);
 
-    expect(fake.upserts).toHaveLength(1);
-    // Both deliveries were logged; the second hit the unique constraint.
+    // One plan write total; both deliveries were audited, the second hit the
+    // unique constraint.
+    expect(fake.credits()).toMatchObject({ plan: "pro" });
     expect(fake.inserts).toHaveLength(2);
   });
 
   it("TEST 3 — two subscription_updated events for the same subscription both process; exact duplicates do not", async () => {
     const fake = mockSupabase(makeFakeSupabase());
 
-    // Event A: subscription goes active.
     const active = subscriptionEvent("subscription_updated", {
       status: "active",
       updatedAt: "2026-01-01T00:00:00.000000Z",
     });
-    // Event B: same subscription is later cancelled (different occurrence).
     const cancelled = subscriptionEvent("subscription_updated", {
       status: "cancelled",
       updatedAt: "2026-01-02T00:00:00.000000Z",
@@ -190,16 +250,17 @@ describe("Lemon Squeezy webhook", () => {
     expect((await deliver(active)).status).toBe(200);
     expect((await deliver(cancelled)).status).toBe(200);
 
-    // Both legitimate events MUST have been processed.
-    expect(fake.upserts).toHaveLength(2);
-    const last = fake.upserts[1];
-    expect(last.plan).toBe("pro");
-    expect(last.subscription_status).toBe("cancelled");
-    expect(last.cancel_at_period_end).toBe(true);
+    // Event A created the row (insert); event B is newer and applied via the
+    // guarded update.
+    expect(fake.credits()).toMatchObject({
+      plan: "pro",
+      subscription_status: "cancelled",
+      cancel_at_period_end: true,
+    });
 
     // An exact duplicate delivery of event B must NOT process twice.
     expect((await deliver(cancelled)).status).toBe(200);
-    expect(fake.upserts).toHaveLength(2);
+    expect(fake.updates).toHaveLength(1);
   });
 
   it("TEST 4 — a different (non-Pro) variant is rejected and never grants Pro", async () => {
@@ -209,7 +270,8 @@ describe("Lemon Squeezy webhook", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(fake.upserts).toHaveLength(0);
+    expect(fake.credits()).toBeNull();
+    expect(fake.updates).toHaveLength(0);
     // The delivery is still audited for diagnostics.
     expect(fake.inserts).toHaveLength(1);
   });
@@ -217,7 +279,7 @@ describe("Lemon Squeezy webhook", () => {
   it("TEST 5 — the configured Pro variant grants Pro (monthly and yearly)", async () => {
     const monthlyFake = mockSupabase(makeFakeSupabase());
     expect((await deliver(subscriptionEvent("subscription_created"))).status).toBe(200);
-    expect(monthlyFake.upserts[0]).toMatchObject({ plan: "pro" });
+    expect(monthlyFake.credits()).toMatchObject({ plan: "pro" });
 
     const yearlyFake = mockSupabase(makeFakeSupabase());
     expect(
@@ -225,7 +287,7 @@ describe("Lemon Squeezy webhook", () => {
         subscriptionEvent("subscription_created", { variant: Number(YEARLY_VARIANT) }),
       )).status,
     ).toBe(200);
-    expect(yearlyFake.upserts[0]).toMatchObject({ plan: "pro" });
+    expect(yearlyFake.credits()).toMatchObject({ plan: "pro" });
   });
 
   it("TEST 6 — an invalid HMAC signature is rejected before any mutation", async () => {
@@ -237,22 +299,259 @@ describe("Lemon Squeezy webhook", () => {
 
     expect(res.status).toBe(401);
     expect(fake.inserts).toHaveLength(0);
-    expect(fake.upserts).toHaveLength(0);
+    expect(fake.credits()).toBeNull();
   });
 
   it("TEST 7 — a missing or unknown user association never grants Pro", async () => {
-    // No user_id in custom_data at all.
     const noUserFake = mockSupabase(makeFakeSupabase());
     const res1 = await deliver(
       subscriptionEvent("subscription_created", { customUserId: null }),
     );
     expect(res1.status).toBe(200);
-    expect(noUserFake.upserts).toHaveLength(0);
+    expect(noUserFake.credits()).toBeNull();
 
-    // user_id present but the account no longer exists.
     const ghostFake = mockSupabase(makeFakeSupabase({ knownUser: false }));
     const res2 = await deliver(subscriptionEvent("subscription_created"));
     expect(res2.status).toBe(200);
-    expect(ghostFake.upserts).toHaveLength(0);
+    expect(ghostFake.credits()).toBeNull();
+  });
+
+  it("TEST 8 — a test_mode event is rejected in production: no plan change, audited", async () => {
+    const fake = mockSupabase(makeFakeSupabase());
+    const res = await deliver(
+      subscriptionEvent("subscription_created", { testMode: true }),
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      received: true,
+      ignored: "test_mode",
+    });
+    expect(fake.credits()).toBeNull();
+    expect(fake.inserts).toHaveLength(1);
+    const audit = fake.inserts[0];
+    expect(audit.table).toBe("subscription_events");
+    expect(String(audit.row.ls_event_id).startsWith("test:")).toBe(true);
+    expect(audit.row.event_name).toBe("subscription_created");
+  });
+
+  it("TEST 9 — a duplicate test_mode rejection does not double-audit", async () => {
+    const fake = mockSupabase(makeFakeSupabase());
+    const payload = subscriptionEvent("subscription_created", { testMode: true });
+
+    expect((await deliver(payload)).status).toBe(200);
+    expect((await deliver(payload)).status).toBe(200);
+    expect(fake.inserts).toHaveLength(2);
+    expect(fake.seenKeys.size).toBe(1);
+    expect(Array.from(fake.seenKeys)[0].startsWith("test:")).toBe(true);
+    expect(fake.credits()).toBeNull();
+  });
+
+  it("TEST 10 — test_mode events are processed when LEMONSQUEEZY_ALLOW_TEST_MODE=true (local dev)", async () => {
+    vi.stubEnv("LEMONSQUEEZY_ALLOW_TEST_MODE", "true");
+    const fake = mockSupabase(makeFakeSupabase());
+    const res = await deliver(
+      subscriptionEvent("subscription_created", { testMode: true }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fake.credits()).toMatchObject({ plan: "pro" });
+  });
+
+  it("TEST 11 — events without a test_mode flag are unaffected", async () => {
+    const fake = mockSupabase(makeFakeSupabase());
+    const payload = subscriptionEvent("subscription_created");
+    expect("test_mode" in (payload.meta as Record<string, unknown>)).toBe(false);
+
+    const res = await deliver(payload);
+    expect(res.status).toBe(200);
+    expect(fake.credits()).toMatchObject({ plan: "pro" });
+  });
+
+  it("TEST 12 — P1-A: a newer event applies over older recorded state", async () => {
+    const fake = mockSupabase(
+      makeFakeSupabase({
+        credits: {
+          user_id: USER_ID,
+          plan: "pro",
+          subscription_status: "cancelled",
+          cancel_at_period_end: true,
+          ends_at: "2026-01-12T00:00:00.000Z",
+          ls_updated_at: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    );
+    const res = await deliver(
+      subscriptionEvent("subscription_updated", {
+        status: "active",
+        updatedAt: "2026-01-03T00:00:00.000000Z",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fake.updates).toHaveLength(1);
+    expect(fake.credits()).toMatchObject({
+      plan: "pro",
+      subscription_status: "active",
+      cancel_at_period_end: false,
+    });
+  });
+
+  it("TEST 13 — P1-A: an older delayed event cannot overwrite newer state", async () => {
+    const fake = mockSupabase(
+      makeFakeSupabase({
+        credits: {
+          user_id: USER_ID,
+          plan: "pro",
+          subscription_status: "cancelled",
+          cancel_at_period_end: true,
+          ends_at: "2026-01-12T00:00:00.000Z",
+          ls_updated_at: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    );
+    const res = await deliver(
+      subscriptionEvent("subscription_updated", {
+        status: "active",
+        updatedAt: "2026-01-01T00:00:00.000000Z",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // No write happened: the newer recorded state must survive.
+    expect(fake.updates).toHaveLength(0);
+    expect(fake.credits()).toMatchObject({
+      plan: "pro",
+      subscription_status: "cancelled",
+      cancel_at_period_end: true,
+      ends_at: "2026-01-12T00:00:00.000Z",
+    });
+  });
+
+  it("TEST 14 — P1-B: a non-Pro variant refund can never revoke Pro", async () => {
+    const fake = mockSupabase(
+      makeFakeSupabase({
+        credits: {
+          user_id: USER_ID,
+          plan: "pro",
+          subscription_status: "active",
+          ls_updated_at: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    );
+    const res = await deliver(
+      subscriptionEvent("order_refunded", {
+        type: "orders",
+        variant: 999,
+        updatedAt: "2026-01-03T00:00:00.000000Z",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      received: true,
+      ignored: "variant",
+    });
+    expect(fake.updates).toHaveLength(0);
+    expect(fake.credits()).toMatchObject({ plan: "pro" });
+  });
+
+  it("TEST 15 — P1-B: a valid Pro-variant revocation still downgrades", async () => {
+    const fake = mockSupabase(
+      makeFakeSupabase({
+        credits: {
+          user_id: USER_ID,
+          plan: "pro",
+          subscription_status: "active",
+          ls_updated_at: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    );
+    const res = await deliver(
+      subscriptionEvent("subscription_expired", {
+        status: "expired",
+        updatedAt: "2026-01-03T00:00:00.000000Z",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fake.updates).toHaveLength(1);
+    expect(fake.credits()).toMatchObject({
+      plan: "free",
+      subscription_status: "expired",
+      variant_id: PRO_VARIANT,
+    });
+  });
+
+  it("TEST 16 — P1-B: a revoke event with no variant identity fails safe", async () => {
+    const fake = mockSupabase(
+      makeFakeSupabase({
+        credits: {
+          user_id: USER_ID,
+          plan: "pro",
+          subscription_status: "active",
+          ls_updated_at: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    );
+    const res = await deliver(
+      subscriptionEvent("subscription_paused", {
+        status: "paused",
+        variant: null,
+        updatedAt: "2026-01-03T00:00:00.000000Z",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      received: true,
+      ignored: "variant",
+    });
+    expect(fake.updates).toHaveLength(0);
+    expect(fake.credits()).toMatchObject({ plan: "pro" });
+  });
+
+  it("TEST 17 — P1-A: a first event without a timestamp still applies (fail-safe)", async () => {
+    const fake = mockSupabase(makeFakeSupabase());
+    const res = await deliver(
+      subscriptionEvent("subscription_created", { updatedAt: null }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fake.credits()).toMatchObject({
+      plan: "pro",
+      subscription_status: "active",
+    });
+    // No authoritative timestamp was recorded, so future timestamped events
+    // can still order themselves against it.
+    expect(fake.credits()?.ls_updated_at).toBeUndefined();
+  });
+
+  it("TEST 18 — P1-A: a timestamp-less event cannot overwrite recorded state", async () => {
+    const fake = mockSupabase(
+      makeFakeSupabase({
+        credits: {
+          user_id: USER_ID,
+          plan: "pro",
+          subscription_status: "cancelled",
+          cancel_at_period_end: true,
+          ls_updated_at: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    );
+    const res = await deliver(
+      subscriptionEvent("subscription_updated", {
+        status: "active",
+        updatedAt: null,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fake.updates).toHaveLength(0);
+    expect(fake.credits()).toMatchObject({
+      plan: "pro",
+      subscription_status: "cancelled",
+      cancel_at_period_end: true,
+    });
   });
 });

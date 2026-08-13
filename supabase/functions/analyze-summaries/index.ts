@@ -10,17 +10,87 @@ const FREE_MAX_REVIEWS = 50;
 const MAX_REVIEW_LENGTH = 1000;
 const FREE_MAX_TOTAL_CHARS = 30000;
 const PRO_MAX_TOTAL_CHARS = 100000;
+// Pro AI caps — the DB is the single source of truth: they live in the
+// public.quota_caps table and are enforced (with caller clamping) inside
+// try_reserve_analysis_slot (supabase/migrations/20260813_p2_security_hardening.sql).
+// These constants are only the offline fallback used when the RPC cannot be
+// reached; try_reserve_analysis_slot clamps whatever it receives to the real
+// caps, so drift can never raise a user's limits.
 const CREDITS_PER_WINDOW = 10;
-
-// Pro AI caps — the DB RPC clamps to these same values server-side, so these
-// constants must stay in sync with the caps enforced in
-// try_reserve_analysis_slot (supabase/migrations/20260813_p1_quota_and_abuse.sql).
 const PRO_DAILY_LIMIT = 50;
 const PRO_MONTHLY_LIMIT = 400;
 const PRO_CONCURRENCY_LIMIT = 3;
 
+const CAPS_CACHE_TTL_MS = 5 * 60 * 1000;
+let capsCache: {
+  at: number;
+  caps: {
+    free: number;
+    proDaily: number;
+    proMonthly: number;
+    proConcurrency: number;
+  };
+} | null = null;
+
+// P2-9: read the quota caps from the database (get_quota_caps), caching the
+// result per function instance for five minutes. On any failure, fall back to
+// the compiled defaults — the DB RPC clamps those to the real caps anyway.
+async function getQuotaCaps(
+  supabase: ReturnType<typeof createClient>,
+): Promise<{
+  free: number;
+  proDaily: number;
+  proMonthly: number;
+  proConcurrency: number;
+}> {
+  const now = Date.now();
+  if (capsCache && now - capsCache.at < CAPS_CACHE_TTL_MS) {
+    return capsCache.caps;
+  }
+
+  try {
+    const { data, error } = await supabase.rpc("get_quota_caps");
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const row = data[0] as Record<string, unknown>;
+      const caps = {
+        free: Number(row.free_limit),
+        proDaily: Number(row.pro_daily_limit),
+        proMonthly: Number(row.pro_monthly_limit),
+        proConcurrency: Number(row.pro_concurrency_limit),
+      };
+      if (
+        caps.free > 0 &&
+        caps.proDaily > 0 &&
+        caps.proMonthly > 0 &&
+        caps.proConcurrency > 0
+      ) {
+        capsCache = { at: now, caps };
+        return caps;
+      }
+    }
+  } catch (err) {
+    console.error("get_quota_caps failed, using defaults:", err);
+  }
+
+  return {
+    free: CREDITS_PER_WINDOW,
+    proDaily: PRO_DAILY_LIMIT,
+    proMonthly: PRO_MONTHLY_LIMIT,
+    proConcurrency: PRO_CONCURRENCY_LIMIT,
+  };
+}
+
 const RICH_MAX_TOKENS = 2200;
 const LEGACY_MAX_TOKENS = 900;
+
+// P1-D: every LLM request is aborted after this long. The edge function must
+// never hang on a stalled provider: an aborted request is released/refunded
+// like any other failed run, so it cannot leave a permanent concurrency slot.
+const LLM_TIMEOUT_MS = 120_000;
+
+function isTimeout(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
 
 const GARBAGE_INPUT_ERROR =
   "We couldn't find meaningful reviews. Please check your input and try again.";
@@ -163,13 +233,15 @@ Deno.serve(async (req: Request) => {
 
   const reviewList = reviews as string[];
 
+  const caps = await getQuotaCaps(supabase);
+
   const { data: reserved, error: reserveError } = await supabase.rpc(
     "try_reserve_analysis_slot",
     {
-      p_limit: CREDITS_PER_WINDOW,
-      p_pro_daily_limit: PRO_DAILY_LIMIT,
-      p_pro_monthly_limit: PRO_MONTHLY_LIMIT,
-      p_concurrency_limit: PRO_CONCURRENCY_LIMIT,
+      p_limit: caps.free,
+      p_pro_daily_limit: caps.proDaily,
+      p_pro_monthly_limit: caps.proMonthly,
+      p_concurrency_limit: caps.proConcurrency,
     },
   );
   if (reserveError) {
@@ -189,29 +261,43 @@ Deno.serve(async (req: Request) => {
   }
 
   let result: AnalysisResult;
+  let richTimedOut = false;
   try {
     const parsed = await callRichLLM(reviewList);
     result = normalizeFull(parsed, reviewList.length);
   } catch (err) {
-    console.error("rich analysis failed, falling back to legacy:", err);
-    try {
-      const parsed = await callLegacyLLM(reviewList);
-      result = normalizeLegacy(parsed, reviewList.length);
-    } catch (err2) {
-      console.error("analysis failed:", err2);
-      const { error: refundError } = await supabase.rpc(
-        "release_analysis_slot",
-        { p_failed: true },
+    richTimedOut = isTimeout(err);
+    if (richTimedOut) {
+      // A timed-out provider is likely slow for everyone: skip the legacy
+      // fallback to avoid piling a second request onto a strained provider,
+      // and refund the run below.
+      console.error(
+        `rich analysis timed out after ${LLM_TIMEOUT_MS}ms (model ${LLM_MODEL}) — skipping legacy fallback`,
       );
-      if (refundError) {
-        console.error("refund failed:", refundError);
+    } else {
+      console.error("rich analysis failed, falling back to legacy:", err);
+      try {
+        const parsed = await callLegacyLLM(reviewList);
+        result = normalizeLegacy(parsed, reviewList.length);
+      } catch (err2) {
+        console.error("analysis failed:", err2);
+        await refundSlot(supabase);
+        return jsonResponse(
+          { error: ANALYSIS_FAILED_ERROR, error_code: "analysis_failed" },
+          500,
+          corsHeaders,
+        );
       }
-      return jsonResponse(
-        { error: ANALYSIS_FAILED_ERROR, error_code: "analysis_failed" },
-        500,
-        corsHeaders,
-      );
     }
+  }
+
+  if (richTimedOut) {
+    await refundSlot(supabase);
+    return jsonResponse(
+      { error: ANALYSIS_FAILED_ERROR, error_code: "analysis_failed" },
+      500,
+      corsHeaders,
+    );
   }
 
   const { error: releaseError } = await supabase.rpc("release_analysis_slot", {
@@ -229,6 +315,20 @@ function jsonResponse(body: unknown, status: number, headers: Record<string, str
     status,
     headers: { ...headers, "Content-Type": "application/json" },
   });
+}
+
+// Failed (or aborted) runs refund their quota/lease per the existing business
+// rules: release_analysis_slot(p_failed=true) drops the pro lease and refunds
+// a free credit. Logs only operational context — never review content.
+async function refundSlot(
+  supabase: ReturnType<typeof createClient>,
+): Promise<void> {
+  const { error } = await supabase.rpc("release_analysis_slot", {
+    p_failed: true,
+  });
+  if (error) {
+    console.error("refund failed:", error);
+  }
 }
 
 function validateReviews(reviews: unknown, plan: "free" | "pro"): string | null {
@@ -602,42 +702,52 @@ async function requestLLM(
     );
   }
 
-  const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${LLM_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      temperature: 0.2,
-      max_tokens: maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    console.error("LLM provider error:", response.status, await response.text());
-    throw new Error(`LLM provider returned status ${response.status}`);
-  }
-
-  const data = (await response.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("LLM returned an empty response.");
-  }
-
+  // P1-D: hard timeout on the provider call. On abort the fetch rejects with
+  // an AbortError, the caller refunds the run and returns a safe error — a
+  // stalled provider can never hold a concurrency slot permanently.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
   try {
-    return extractJson(content);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("failed to parse LLM response:", message);
-    throw new Error("LLM response was not valid JSON.");
+    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${LLM_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.error("LLM provider error:", response.status, await response.text());
+      throw new Error(`LLM provider returned status ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error("LLM returned an empty response.");
+    }
+
+    try {
+      return extractJson(content);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.error("failed to parse LLM response:", message);
+      throw new Error("LLM response was not valid JSON.");
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
