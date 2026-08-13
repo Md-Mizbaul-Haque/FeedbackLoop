@@ -52,6 +52,22 @@ const pageTitles: Record<string, string> = {
   "/results": "Results",
 };
 
+/**
+ * Removes the Supabase session cookies without a network round trip so logout
+ * feels instant. Mirrors the middleware's detection: `sb-<ref>-auth-token`
+ * and the PKCE `-code-verifier` variants. Deletion only needs name + path to
+ * match (SameSite/Secure don't affect it), and the browser client writes
+ * host-only cookies at `Path=/`.
+ */
+function clearAuthCookies() {
+  for (const cookie of document.cookie.split(";")) {
+    const name = cookie.split("=")[0].trim();
+    if (name.endsWith("-auth-token") || name.endsWith("-code-verifier")) {
+      document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax`;
+    }
+  }
+}
+
 export function Header() {
   const router = useRouter();
   const pathname = usePathname();
@@ -78,13 +94,23 @@ export function Header() {
       .join("")
       .toUpperCase() || "?";
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     setLoggingOut(true);
     const supabase = createClient();
-    await supabase.auth.signOut();
+
+    // Revoke the session server-side in the background — never block the UI
+    // on the network round trip.
+    void supabase.auth.signOut().catch(() => {});
+
+    // Flip the app to guest instantly: drop cached query state and clear the
+    // session cookies locally so the navigation request carries no auth.
     queryClient.clear();
+    clearAuthCookies();
+
+    // Navigate immediately; the server sees the cleared cookies and renders
+    // /login as a guest. (No router.refresh() — it would only add an extra
+    // RSC round trip on a route whose content is already client-rendered.)
     router.push("/login");
-    router.refresh();
   };
 
   const handleSelect = (option: DropdownOption) => {
