@@ -30,6 +30,7 @@ interface LsWebhookPayload {
       renews_at?: string | null;
       ends_at?: string | null;
       cancelled?: boolean;
+      updated_at?: string | null;
       variant_id?: number | null;
       first_subscription_item?: { subscription_id?: number; variant_id?: number };
       first_order_item?: { variant_id?: number };
@@ -105,6 +106,77 @@ function extractIds(
     subscriptionId = String(attributes.first_subscription_item.subscription_id);
   }
   return { customerId, subscriptionId };
+}
+
+// ---------------------------------------------------------------------------
+// Webhook event identity (P0-1)
+// ---------------------------------------------------------------------------
+// Lemon Squeezy payloads do not carry a per-delivery event id: retries resend
+// the identical payload, while distinct events for one resource share the
+// resource id (data.id). Distinguish event occurrences by the resource's
+// updated_at timestamp — microsecond precision, bumped on every change — so
+// two legitimate subscription_updated events for the same subscription get
+// different keys and both process, while an exact retry delivery keeps the
+// same key and is deduplicated. If updated_at is absent, fall back to the
+// mutable state fields the change itself carries.
+function buildLsEventId(
+  event: string,
+  data: NonNullable<LsWebhookPayload["data"]>,
+): string | null {
+  if (!data.id) return null;
+  const attributes = data.attributes ?? {};
+  const occurrence =
+    typeof attributes.updated_at === "string" && attributes.updated_at
+      ? attributes.updated_at
+      : [attributes.status, attributes.ends_at, attributes.renews_at]
+          .filter((v): v is string => typeof v === "string")
+          .join("|");
+  return `${event}:${data.type ?? "event"}:${data.id}:${occurrence}`;
+}
+
+// ---------------------------------------------------------------------------
+// Pro-variant validation (P0-2)
+// ---------------------------------------------------------------------------
+// Only subscriptions of the configured FeedbackLoop Pro product may grant or
+// retain Pro. The product has one monthly variant (LEMONSQUEEZY_PRO_VARIANT_ID)
+// and, when configured, a yearly variant (LEMONSQUEEZY_PRO_YEARLY_VARIANT_ID);
+// the checkout route picks between them. Events for any other variant belong
+// to a different product or a one-time purchase and must never touch
+// user_credits. Comparison normalizes both sides to trimmed strings because
+// Lemon Squeezy sends numeric variant ids while the environment variables are
+// strings.
+function configuredProVariants(): Set<string> {
+  const configured = [
+    process.env.LEMONSQUEEZY_PRO_VARIANT_ID,
+    process.env.LEMONSQUEEZY_PRO_YEARLY_VARIANT_ID,
+  ];
+  return new Set(
+    configured
+      .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+      .map((v) => v.trim()),
+  );
+}
+
+function isProVariantEvent(eventVariant: string | null): boolean {
+  const proVariants = configuredProVariants();
+  if (proVariants.size === 0) {
+    console.error(
+      "[ls-webhook] LEMONSQUEEZY_PRO_VARIANT_ID is not configured — refusing to grant Pro.",
+    );
+    return false;
+  }
+  return eventVariant !== null && proVariants.has(eventVariant);
+}
+
+function ignoredVariant(
+  event: string,
+  subscriptionId: string | null,
+  eventVariant: string | null,
+): NextResponse {
+  console.warn(
+    `[ls-webhook] ignoring ${event} (subscription ${subscriptionId ?? "unknown"}) — variant ${eventVariant ?? "missing"} is not a configured Pro variant`,
+  );
+  return NextResponse.json({ received: true, ignored: "variant" });
 }
 
 // ---------------------------------------------------------------------------
@@ -221,14 +293,14 @@ export async function POST(req: NextRequest) {
   }
 
   // Idempotency: log every processed event once. A unique violation means the
-  // event was already handled (Lemon Squeezy retries deliveries). The key must
-  // include the event name — data.id alone is the subscription id, which is
-  // shared by every subscription event, so it can't identify a delivery.
+  // event was already handled (Lemon Squeezy retries deliveries with the
+  // identical payload). The key identifies the event occurrence — event name +
+  // resource id + the resource's updated_at — so distinct events for the same
+  // subscription both process while exact retries are deduplicated.
   const supabase = serviceClient();
   const dataRef = payload.data ?? {};
-  const lsEventId = dataRef.id
-    ? `${event}:${dataRef.type ?? "event"}:${dataRef.id}`
-    : null;
+  const ids = extractIds(dataRef);
+  const lsEventId = buildLsEventId(event, dataRef);
   if (lsEventId) {
     const { error: logError } = await supabase.from("subscription_events").insert({
       ls_event_id: lsEventId,
@@ -245,6 +317,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // User association: checkout embeds the signed-in user's id in
+  // meta.custom_data (never a frontend-supplied value). Verify the user still
+  // exists so a stale/deleted id can't create a ghost row or grant Pro to an
+  // account that no longer exists.
+  const { data: account, error: accountError } =
+    await supabase.auth.admin.getUserById(user_id);
+  if (accountError || !account?.user) {
+    console.warn(
+      `[ls-webhook] ignoring ${event} (subscription ${ids.subscriptionId ?? "unknown"}) — user ${user_id} not found`,
+    );
+    return NextResponse.json({ received: true, ignored: "user" });
+  }
+
   const attributes = dataRef.attributes ?? {};
   const status = attributes.status ?? null;
   const renewsAt = attributes.renews_at ?? null;
@@ -256,7 +341,8 @@ export async function POST(req: NextRequest) {
     null;
   const billingInterval = custom.interval ?? null;
   const email = attributes.user_email;
-  const ids = extractIds(dataRef);
+  const eventVariant = variantId == null ? null : String(variantId);
+  const proVariantEvent = isProVariantEvent(eventVariant);
 
   const grantEmails: Record<string, SubscriptionEmailEvent | null> = {
     order_created: "pro_activated",
@@ -275,13 +361,16 @@ export async function POST(req: NextRequest) {
   try {
     // --- Events that grant (or keep) Pro ------------------------------------
     if (event in grantEmails) {
+      if (!proVariantEvent) {
+        return ignoredVariant(event, ids.subscriptionId, eventVariant);
+      }
       await applyPlan(user_id, {
         plan: "pro",
         status: coerceStatus(status, "active"),
         renewsAt,
         endsAt,
         cancelAtPeriodEnd: false,
-        variantId: variantId == null ? null : String(variantId),
+        variantId: eventVariant,
         billingInterval,
         ...ids,
       });
@@ -309,13 +398,16 @@ export async function POST(req: NextRequest) {
 
     // --- Cancellation: customer keeps Pro until the end of the paid period --
     if (event === "subscription_cancelled") {
+      if (!proVariantEvent) {
+        return ignoredVariant(event, ids.subscriptionId, eventVariant);
+      }
       await applyPlan(user_id, {
         plan: "pro",
         status: "cancelled",
         renewsAt: null,
         endsAt,
         cancelAtPeriodEnd: true,
-        variantId: variantId == null ? null : String(variantId),
+        variantId: eventVariant,
         billingInterval,
         ...ids,
       });
@@ -325,13 +417,16 @@ export async function POST(req: NextRequest) {
 
     // --- Failed renewal: LS retries; keep Pro, mark past-due, notify -------
     if (event === "subscription_payment_failed") {
+      if (!proVariantEvent) {
+        return ignoredVariant(event, ids.subscriptionId, eventVariant);
+      }
       await applyPlan(user_id, {
         plan: await currentPlan(user_id),
         status: coerceStatus(status, "past_due"),
         renewsAt,
         endsAt: endsAt ?? null,
         cancelAtPeriodEnd: attributes.cancelled === true,
-        variantId: variantId == null ? null : String(variantId),
+        variantId: eventVariant,
         billingInterval,
         ...ids,
       });
@@ -341,6 +436,9 @@ export async function POST(req: NextRequest) {
 
     // --- Generic subscription state change ----------------------------------
     if (event === "subscription_updated") {
+      if (!proVariantEvent) {
+        return ignoredVariant(event, ids.subscriptionId, eventVariant);
+      }
       if (status === "expired") {
         await applyPlan(user_id, {
           plan: "free",
@@ -348,7 +446,7 @@ export async function POST(req: NextRequest) {
           renewsAt: null,
           endsAt: endsAt ?? null,
           cancelAtPeriodEnd: false,
-          variantId: variantId == null ? null : String(variantId),
+          variantId: eventVariant,
           billingInterval,
           ...ids,
         });
@@ -360,7 +458,7 @@ export async function POST(req: NextRequest) {
           renewsAt: null,
           endsAt: endsAt ?? null,
           cancelAtPeriodEnd: false,
-          variantId: variantId == null ? null : String(variantId),
+          variantId: eventVariant,
           billingInterval,
           ...ids,
         });
@@ -374,7 +472,7 @@ export async function POST(req: NextRequest) {
           endsAt,
           cancelAtPeriodEnd:
             s === "cancelled" ? true : attributes.cancelled === true,
-          variantId: variantId == null ? null : String(variantId),
+          variantId: eventVariant,
           billingInterval,
           ...ids,
         });

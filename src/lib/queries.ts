@@ -29,6 +29,22 @@ export interface Credits {
   billingInterval: "month" | "year" | null;
 }
 
+/**
+ * The state of a brand-new user who has never used the product: free plan,
+ * zero credits used. `user_credits` rows are created lazily on first use,
+ * so a missing row must read as a fresh free user — not "loading".
+ */
+const DEFAULT_CREDITS: Credits = {
+  used: 0,
+  plan: "free",
+  windowStart: null,
+  subscriptionStatus: null,
+  renewsAt: null,
+  endsAt: null,
+  cancelAtPeriodEnd: false,
+  billingInterval: null,
+};
+
 /** True when the user had a paid subscription that is no longer active. */
 export function isExpiredSubscription(credits: Credits | null): boolean {
   if (!credits) return false;
@@ -64,9 +80,11 @@ export function useUser(): {
 }
 
 export function useCredits(userId: string | null): {
-  credits: Credits | null;
+  credits: Credits;
+  /** True only while the credits row is actually being fetched. */
+  isLoading: boolean;
 } {
-  const { data } = useQuery({
+  const { data, isPending } = useQuery({
     queryKey: creditsQueryKey(userId ?? ""),
     queryFn: async () => {
       const supabase = createClient();
@@ -78,7 +96,7 @@ export function useCredits(userId: string | null): {
         .eq("user_id", userId ?? "")
         .maybeSingle();
 
-      if (!data) return null;
+      if (!data) return DEFAULT_CREDITS;
       const status = (data.subscription_status as string | null) ?? null;
       const interval = (data.billing_interval as string | null) ?? null;
       return {
@@ -110,7 +128,11 @@ export function useCredits(userId: string | null): {
     enabled: !!userId,
   });
 
-  return { credits: data ?? null };
+  return {
+    credits: data ?? DEFAULT_CREDITS,
+    // A disabled query (guest / no userId) reports `pending` but is not loading.
+    isLoading: !!userId && isPending,
+  };
 }
 
 export function useBusinessProfile(userId: string | null): {

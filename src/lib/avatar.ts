@@ -1,12 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 
 const AVATAR_SIZE = 256;
 const SIGNED_URL_TTL_SECONDS = 3600;
 const REFRESH_BEFORE_MS = 10 * 60 * 1000;
+/**
+ * Signed URLs are valid for SIGNED_URL_TTL_SECONDS. Treat a cached URL as
+ * fresh for almost its whole lifetime so revisiting a page (or switching
+ * between the header and profile, which both render the avatar) doesn't
+ * re-fetch it. react-query shows the cached URL immediately and refreshes
+ * in the background once stale.
+ */
+const SIGNED_URL_STALE_MS = (SIGNED_URL_TTL_SECONDS - REFRESH_BEFORE_MS / 1000) * 1000;
+/** Keep the cached URL around for the full signed-URL lifetime, even while
+ * no component is mounted (e.g. navigating away from /profile). */
+const SIGNED_URL_GC_MS = SIGNED_URL_TTL_SECONDS * 1000;
+
+const avatarUrlQueryKey = (path: string) => ["avatar", "signed-url", path] as const;
+
+interface SignedAvatar {
+  path: string;
+  url: string;
+}
 
 export const AVATAR_MIME_TYPES = [
   "image/png",
@@ -62,41 +81,36 @@ export async function resizeAvatar(file: File, maxSize = AVATAR_SIZE): Promise<B
 
 export function useAvatarUrl(user: User | null): string | null {
   const meta = user?.user_metadata?.avatar_url;
-  const [signed, setSigned] = useState<{ path: string; url: string } | null>(
-    null,
-  );
-
   const isExternalUrl =
     typeof meta === "string" && /^https?:\/\//i.test(meta);
   const isStoragePath = isStorageAvatarPath(meta);
+  const path = isStoragePath && typeof meta === "string" ? meta : "";
 
-  useEffect(() => {
-    if (!isStoragePath || typeof meta !== "string") return;
-
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const resolve = async () => {
+  const { data: signed, refetch } = useQuery({
+    queryKey: avatarUrlQueryKey(path),
+    queryFn: async (): Promise<SignedAvatar | null> => {
       const supabase = createClient();
       const { data, error } = await supabase.storage
         .from("avatars")
-        .createSignedUrl(meta, SIGNED_URL_TTL_SECONDS);
+        .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+      if (error || !data) return null;
+      return { path, url: data.signedUrl };
+    },
+    enabled: isStoragePath && path !== "",
+    staleTime: SIGNED_URL_STALE_MS,
+    gcTime: SIGNED_URL_GC_MS,
+  });
 
-      if (disposed) return;
-      if (!error && data) setSigned({ path: meta, url: data.signedUrl });
-      timer = setTimeout(
-        resolve,
-        SIGNED_URL_TTL_SECONDS * 1000 - REFRESH_BEFORE_MS,
-      );
-    };
-
-    resolve();
-    return () => {
-      disposed = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [isStoragePath, meta]);
+  // While a page stays open past the signed URL's TTL, refresh it just
+  // before it expires so the avatar never breaks mid-session.
+  useEffect(() => {
+    if (!isStoragePath || path === "") return;
+    const timer = setTimeout(() => {
+      refetch();
+    }, SIGNED_URL_TTL_SECONDS * 1000 - REFRESH_BEFORE_MS);
+    return () => clearTimeout(timer);
+  }, [isStoragePath, path, refetch]);
 
   if (isExternalUrl && typeof meta === "string") return meta;
-  return signed && signed.path === meta ? signed.url : null;
+  return signed?.path === path && signed.url ? signed.url : null;
 }

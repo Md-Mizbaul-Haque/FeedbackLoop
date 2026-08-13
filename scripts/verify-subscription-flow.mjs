@@ -39,6 +39,7 @@ const required = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "SUPABASE_SECRET_KEY",
   "LEMONSQUEEZY_WEBHOOK_SECRET",
+  "LEMONSQUEEZY_PRO_VARIANT_ID",
 ];
 for (const key of required) {
   if (!env[key]) {
@@ -46,6 +47,10 @@ for (const key of required) {
     process.exit(1);
   }
 }
+
+// The webhook only grants Pro for the configured Pro variant (P0-2), so every
+// event fired below must carry it.
+const PRO_VARIANT_ID = env.LEMONSQUEEZY_PRO_VARIANT_ID;
 
 const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -158,7 +163,7 @@ let r = await fireWebhook("subscription_created", subId, "subscriptions", {
   status: "active",
   renews_at: new Date(Date.now() + 30 * 864e5).toISOString(),
   ends_at: null,
-  variant_id: 12345,
+  variant_id: PRO_VARIANT_ID,
 });
 check("subscription_created -> 200", r.status === 200, `status ${r.status}`);
 let c = await getCredits();
@@ -176,7 +181,7 @@ r = await fireWebhook("subscription_created", subId, "subscriptions", {
   status: "active",
   renews_at: new Date(Date.now() + 30 * 864e5).toISOString(),
   ends_at: null,
-  variant_id: 12345,
+  variant_id: PRO_VARIANT_ID,
 });
 check("duplicate delivery deduped (200)", r.status === 200, `status ${r.status}`);
 c = await getCredits();
@@ -189,6 +194,7 @@ r = await fireWebhook("subscription_payment_failed", subId, "subscriptions", {
   renews_at: new Date(Date.now() + 3 * 864e5).toISOString(),
   ends_at: null,
   cancelled: false,
+  variant_id: PRO_VARIANT_ID,
 });
 check("payment_failed -> 200", r.status === 200, `status ${r.status}`);
 c = await getCredits();
@@ -201,6 +207,7 @@ r = await fireWebhook("subscription_cancelled", subId, "subscriptions", {
   renews_at: null,
   ends_at: new Date(Date.now() + 10 * 864e5).toISOString(),
   cancelled: true,
+  variant_id: PRO_VARIANT_ID,
 });
 check("subscription_cancelled -> 200", r.status === 200, `status ${r.status}`);
 c = await getCredits();
@@ -217,6 +224,7 @@ r = await fireWebhook("subscription_expired", subId, "subscriptions", {
   renews_at: null,
   ends_at: new Date().toISOString(),
   cancelled: false,
+  variant_id: PRO_VARIANT_ID,
 });
 check("subscription_expired -> 200", r.status === 200, `status ${r.status}`);
 c = await getCredits();
@@ -227,7 +235,7 @@ r = await fireWebhook("order_created", 500555, "orders", {
   customer_id: custId,
   user_email: email,
   status: "paid",
-  first_subscription_item: { subscription_id: subId, variant_id: 12345 },
+  first_subscription_item: { subscription_id: subId, variant_id: PRO_VARIANT_ID },
 });
 check("order_created (status 'paid') -> 200", r.status === 200, `status ${r.status}`);
 c = await getCredits();
@@ -238,7 +246,7 @@ r = await fireWebhook("order_refunded", 500555, "orders", {
   customer_id: custId,
   user_email: email,
   status: "refunded",
-  first_subscription_item: { subscription_id: subId, variant_id: 12345 },
+  first_subscription_item: { subscription_id: subId, variant_id: PRO_VARIANT_ID },
 });
 check("order_refunded (status 'refunded') -> 200", r.status === 200, `status ${r.status}`);
 c = await getCredits();

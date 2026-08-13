@@ -47,12 +47,14 @@ function PricingContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const { user, isLoading } = useUser();
-  const { credits } = useCredits(user?.id ?? null);
+  const { credits, isLoading: creditsLoading } = useCredits(
+    user?.id ?? null,
+  );
   const [checkingOut, setCheckingOut] = useState(false);
   const [interval, setInterval] = useState<"month" | "year">("month");
 
   const plan = credits?.plan ?? "free";
-  const loadingPlan = isLoading || (user !== null && credits === null);
+  const loadingPlan = isLoading || creditsLoading;
   const expired = isExpiredSubscription(credits);
 
   useEffect(() => {

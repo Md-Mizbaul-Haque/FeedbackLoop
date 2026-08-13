@@ -81,7 +81,10 @@ function providerLabel(provider: string | undefined) {
 export default function ProfilePage() {
   const queryClient = useQueryClient();
   const { user, isLoading: authLoading } = useUser();
-  const { credits } = useCredits(user?.id ?? null);
+  const {
+    credits,
+    isLoading: creditsLoading,
+  } = useCredits(user?.id ?? null);
   const { businessName, website } = useBusinessProfile(user?.id ?? null);
   const [fullName, setFullName] = useState("");
   const [avatarPath, setAvatarPath] = useState("");
@@ -703,7 +706,7 @@ export default function ProfilePage() {
                   )}
                 </Button>
               </div>
-            ) : credits === null ? (
+            ) : creditsLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading usage…
