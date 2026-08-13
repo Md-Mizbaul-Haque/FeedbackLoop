@@ -1,11 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { verifyOtpCode } from "@/lib/otp";
+import { clientIp, hashIp } from "@/lib/client-ip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_ATTEMPTS = 5;
+const IP_VERIFIES_PER_HOUR = 30;
+const GENERIC_ACCOUNT_ERROR = "Could not create your account. Please try again.";
+
+function createAdminClient() {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SECRET_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+}
+
+type AdminClient = ReturnType<typeof createAdminClient>;
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as {
@@ -27,11 +40,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const supabase = createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  );
+  const supabase = createAdminClient();
+
+  const ip = clientIp(req.headers);
+  if (ip && !(await takeRateLimit(supabase, `ip:${hashIp(ip)}`, IP_VERIFIES_PER_HOUR))) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a bit and try again." },
+      { status: 429 },
+    );
+  }
 
   const { data: row } = await supabase
     .from("signup_verifications")
@@ -93,21 +110,27 @@ export async function POST(req: NextRequest) {
 
   if (createError) {
     console.error("Failed to create user:", createError);
-    const message = (createError.message ?? "").toLowerCase();
-    if (createError.code === "user_already_exists" || message.includes("already")) {
-      return NextResponse.json(
-        {
-          error:
-            "An account with this email already exists. Try signing in instead.",
-        },
-        { status: 409 },
-      );
+    if (createError.code === "user_already_exists" || /already/i.test(createError.message ?? "")) {
+      // The email was OTP-verified, so this is a signup race, not an
+      // enumeration signal. Keep the wording generic (P1-4).
+      return NextResponse.json({ error: GENERIC_ACCOUNT_ERROR }, { status: 409 });
     }
-    return NextResponse.json(
-      { error: "Could not create your account. Please try again." },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: GENERIC_ACCOUNT_ERROR }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/** P1-3: per-IP attempt cap on the verify endpoint, fail-open on RPC errors. */
+async function takeRateLimit(supabase: AdminClient, key: string, limit: number): Promise<boolean> {
+  const { data, error } = await supabase.rpc("rate_limit_take", {
+    p_key: key,
+    p_limit: limit,
+    p_window_seconds: 3600,
+  });
+  if (error) {
+    console.error("verify rate limit rpc failed:", error);
+    return true;
+  }
+  return data ?? true;
 }
