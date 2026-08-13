@@ -19,6 +19,16 @@ export function securityHeaders(): { key: string; value: string }[] {
     supabaseOrigin = "";
   }
 
+  // Sentry client events are tunneled to the same origin (/monitoring), but the
+  // ingest host is allowed directly as a fallback (e.g. when the tunnel is off).
+  const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN ?? "";
+  let sentryOrigin = "";
+  try {
+    sentryOrigin = sentryDsn ? new URL(sentryDsn).origin : "";
+  } catch {
+    sentryOrigin = "";
+  }
+
   const isProduction = process.env.NODE_ENV === "production";
 
   const scriptSrc = isProduction
@@ -27,7 +37,9 @@ export function securityHeaders(): { key: string; value: string }[] {
   const imgSrc = supabaseOrigin
     ? `'self' data: blob: ${supabaseOrigin}`
     : "'self' data: blob:";
-  const connectSrc = supabaseOrigin ? `'self' ${supabaseOrigin}` : "'self'";
+  const connectSrc = ["'self'", supabaseOrigin, sentryOrigin]
+    .filter(Boolean)
+    .join(" ");
 
   const contentSecurityPolicy = [
     "default-src 'self'",
