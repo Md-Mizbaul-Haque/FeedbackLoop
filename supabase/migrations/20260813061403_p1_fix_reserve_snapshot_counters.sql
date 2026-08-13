@@ -9,7 +9,7 @@
 -- so the "first use in a fresh window" could land above 1). This hotfix
 -- rewrote the RPC to snapshot BOTH the window starts and the counters into the
 -- rowtype before writing, so the reset and the increment commit in one
--- consistent statement. The local copy of 20260813_p1_quota_and_abuse.sql
+-- consistent statement. The local copy of 20260813060644_p1_quota_and_abuse.sql
 -- already carries this shape, so on a fresh environment this file replays the
 -- same function definition and is safe (drop + recreate of an identical body);
 -- it exists so the migration history faithfully matches what production

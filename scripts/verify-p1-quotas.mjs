@@ -98,7 +98,7 @@ const FREE_LIMIT = 10;
 const HOUR_MS = 3600 * 1000;
 
 // ---- 1. schema / grants ---------------------------------------------------
-console.log("\n== 1. schema (migration 20260813_p1_quota_and_abuse applied?) ==");
+console.log("\n== 1. schema (migration 20260813060644_p1_quota_and_abuse applied?) ==");
 try {
   const { error } = await admin
     .from("user_credits")

@@ -127,7 +127,7 @@ const ARGS = {
 };
 
 // ---- 1. schema / grants ---------------------------------------------------
-console.log("\n== 1. schema (migration 20260813100002_p1_concurrency_lease applied?) ==");
+console.log("\n== 1. schema (migration 20260813075217_p1_concurrency_lease applied?) ==");
 const withRetry = async (fn, attempts = 3, delayMs = 1000) => {
   let lastErr;
   for (let i = 0; i < attempts; i++) {

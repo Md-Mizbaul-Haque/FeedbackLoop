@@ -1,0 +1,17 @@
+# Supabase CLI configuration for FeedbackLoop.
+# Migrations live in supabase/migrations/ (versioned filenames match the
+# applied history 1:1). Link this repo to the hosted project with:
+#
+#   supabase login
+#   supabase link --project-ref <your-project-ref>
+#
+# then push new migrations with `supabase db push`. Settings here only
+# affect local workflows; the hosted project is configured in the dashboard.
+
+project_id = "feedbackloop"
+
+[functions.analyze-summaries]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true

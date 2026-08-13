@@ -12,7 +12,7 @@ const FREE_MAX_TOTAL_CHARS = 30000;
 const PRO_MAX_TOTAL_CHARS = 100000;
 // Pro AI caps — the DB is the single source of truth: they live in the
 // public.quota_caps table and are enforced (with caller clamping) inside
-// try_reserve_analysis_slot (supabase/migrations/20260813_p2_security_hardening.sql).
+// try_reserve_analysis_slot (supabase/migrations/20260813063602_p2_security_hardening.sql).
 // These constants are only the offline fallback used when the RPC cannot be
 // reached; try_reserve_analysis_slot clamps whatever it receives to the real
 // caps, so drift can never raise a user's limits.
