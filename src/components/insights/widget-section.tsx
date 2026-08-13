@@ -86,13 +86,22 @@ function WidgetFace({
   );
 }
 
+/** Escape a value for a double-quoted HTML attribute in the copied snippet. */
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export function WidgetSection({ model }: { model: SummaryModel }) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const [copied, setCopied] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   const content = widgetContent(model);
-  const snippet = `<div id="feedbackloop-widget" data-id="${model.widgetId}"${theme === "dark" ? ` data-theme="dark"` : ""}></div>\n<script src="${origin}/widget.js" async></script>`;
+  const snippet = `<div id="feedbackloop-widget" data-id="${escapeAttr(model.widgetId)}"${theme === "dark" ? ` data-theme="dark"` : ""}></div>\n<script src="${origin}/widget.js" async></script>`;
 
   const handleCopy = async () => {
     try {

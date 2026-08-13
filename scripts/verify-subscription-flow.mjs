@@ -65,7 +65,7 @@ const check = (name, ok, detail = "") => {
 // ---- 1. schema / migrations ----------------------------------------------
 console.log("\n== 1. DB schema (migrations applied?) ==");
 try {
-  const { data, error } = await admin
+  const { error } = await admin
     .from("user_credits")
     .select(
       "plan, used, window_start, subscription_status, renews_at, ends_at, cancel_at_period_end, variant_id, billing_interval, ls_subscription_id, ls_customer_id",

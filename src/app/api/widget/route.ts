@@ -10,6 +10,56 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+// widget_id is a UUID (crypto.randomUUID) or a legacy numeric fallback string.
+// Reject anything longer or containing characters that are not URL/attribute
+// safe, so a crafted id can neither bloat the indexed equality lookup nor
+// break out of the embed snippet's data-id attribute.
+const WIDGET_ID_RE = /^[A-Za-z0-9._:-]+$/;
+const WIDGET_ID_MAX = 64;
+
+// The public endpoint returns exactly what public/widget.js renders — nothing
+// more. The full `analysis` jsonb contains AI prose that can quote review
+// text, so it is never shipped to embedding sites; only the fields the widget
+// actually reads are projected here.
+function projectWidgetResponse(summary: {
+  title: string;
+  reviews_count: number;
+  keywords: unknown;
+  positive_sentiment_pct: number;
+  analysis: {
+    themes?: { name?: string; mentions?: number }[];
+    sentiment?: {
+      positive_pct?: number | null;
+      neutral_pct?: number | null;
+      negative_pct?: number | null;
+    };
+  } | null;
+  created_at: string;
+}) {
+  const themes = Array.isArray(summary.analysis?.themes)
+    ? summary.analysis.themes.map((t) => ({
+        name: typeof t.name === "string" ? t.name : "",
+        mentions: typeof t.mentions === "number" ? t.mentions : 0,
+      }))
+    : [];
+  const sentiment = summary.analysis?.sentiment;
+  return {
+    title: summary.title,
+    reviews_count: summary.reviews_count,
+    keywords: summary.keywords,
+    positive_sentiment_pct: summary.positive_sentiment_pct,
+    analysis: {
+      themes,
+      sentiment: {
+        positive_pct: sentiment?.positive_pct ?? null,
+        neutral_pct: sentiment?.neutral_pct ?? null,
+        negative_pct: sentiment?.negative_pct ?? null,
+      },
+    },
+    created_at: summary.created_at,
+  };
+}
+
 // Public widget endpoint limits. Generous per-visitor and global buckets: real
 // embedded widgets share visitor IPs behind NATs and repeat requests are
 // served from the CDN cache (Cache-Control below), while a hostile scraper
@@ -47,6 +97,13 @@ export async function GET(request: NextRequest) {
   if (!widgetId) {
     return NextResponse.json(
       { error: "Missing widget_id parameter." },
+      { status: 400, headers: corsHeaders },
+    );
+  }
+
+  if (!WIDGET_ID_RE.test(widgetId) || widgetId.length > WIDGET_ID_MAX) {
+    return NextResponse.json(
+      { error: "Invalid widget_id parameter." },
       { status: 400, headers: corsHeaders },
     );
   }
@@ -111,7 +168,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(summary, {
+  return NextResponse.json(projectWidgetResponse(summary), {
     headers: {
       ...corsHeaders,
       "Cache-Control": "public, max-age=300, s-maxage=300",

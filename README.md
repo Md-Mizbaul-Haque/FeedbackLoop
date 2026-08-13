@@ -126,6 +126,8 @@ Apply the SQL migrations (`supabase/migrations/*.sql`) to your Supabase project 
 
 All variables must be set in `.env.local` **and** in the Vercel project (Production). `NEXT_PUBLIC_*` keys are safe to be public; everything else is secret.
 
+> **Edge-function secrets:** `LLM_API_KEY` (and the optional `LLM_BASE_URL` / `LLM_MODEL`) are set in Supabase → Edge Functions → Secrets, **not** in Vercel or `.env.local`.
+
 | Variable | What it is | Where to get it |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Supabase → Settings → API |
@@ -138,11 +140,14 @@ All variables must be set in `.env.local` **and** in the Vercel project (Product
 | `LEMONSQUEEZY_WEBHOOK_SECRET` | Signing secret of the webhook you create in LS | LS → Settings → Webhooks |
 | `LEMONSQUEEZY_PRO_VARIANT_ID` | Numeric variant ID of the monthly Pro subscription | LS → Products → Pro → Variants |
 | `LEMONSQUEEZY_PRO_YEARLY_VARIANT_ID` | Numeric variant ID of the yearly Pro subscription (optional; powers the billing toggle on `/pricing`) | LS → Products → Pro → Variants |
+| `LEMONSQUEEZY_ALLOW_TEST_MODE` | Set to `true` only in local/test environments to accept Lemon Squeezy **test-mode** webhooks (always rejected in production) | optional |
+| `SUPABASE_AUTH_URL` | Supabase auth base URL for email verification links (defaults to `NEXT_PUBLIC_SUPABASE_URL`) | Supabase → Settings → API |
 | `LLM_API_KEY` (edge function secret) | Groq API key | console.groq.com |
 | `LLM_BASE_URL` / `LLM_MODEL` (optional) | AI endpoint + model (defaults to Groq `llama-3.3-70b-versatile`) | defaults |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | SMTP server + auth for transactional email | your email provider |
 | `EMAIL_FROM`, `EMAIL_FROM_NAME` | Visible sender | your domain / provider |
-| `SMTP_PASS` (legacy alias) / `SMTP_FROM` (deprecated) | Accepted for backward compatibility | — |
+| `EMAIL_REPLY_TO` | Reply-to address on transactional email (optional) | your inbox |
+| `SMTP_PASS` (legacy alias) | Alias of `SMTP_PASSWORD` for backward compatibility | — |
 
 > **Gmail note:** the From address must be the Gmail address itself or a verified "Send mail as" identity, or Gmail rewrites it. For a custom-domain sender (`no-reply@yourdomain.com`), use a transactional provider (Resend, SendGrid, SES, Mailgun) with SPF/DKIM set up.
 
@@ -182,7 +187,7 @@ All tables are RLS-protected and scoped to `auth.uid()`.
 
 **Checkout:** `/api/lemon-squeezy/checkout?interval=month|year` creates a real LS checkout URL for the Pro variant and stores the customer's email; `/api/lemon-squeezy/portal` returns the LS customer portal URL for managing/cancelling.
 
-**Webhook** (`/api/lemon-squeezy/webhook`): every event is **signature-verified** with `standardwebhooks` using `LEMONSQUEEZY_WEBHOOK_SECRET`, and events are recorded idempotently in `subscription_events` before applying state changes. The store only sends events whose IDs haven't been processed, so replays can't double-apply.
+**Webhook** (`/api/lemon-squeezy/webhook`): every event is **signature-verified** with an HMAC-SHA256 check (`createHmac` + `timingSafeEqual`) using `LEMONSQUEEZY_WEBHOOK_SECRET`, and events are recorded idempotently in `subscription_events` before applying state changes. The store only sends events whose IDs haven't been processed, so replays can't double-apply.
 
 Register the webhook in the LS dashboard at:
 
@@ -210,7 +215,7 @@ order_refunded
 - Validates plan + quotas atomically (free 10/24h · pro 50/day · pro 400/month · concurrency caps) **before** spending tokens.
 - Guards input: 10–50 reviews, ≤1,000 chars each, ≤30k chars (free) / 100k (pro); garbage input is rejected.
 - Calls Groq (`llama-3.3-70b-versatile`) for a **rich analysis** (sentiment, themes, impact matrix, recommendations — `RICH_MAX_TOKENS`) and falls back to a legacy summarization path if the rich mode fails.
-- Persists the summary + `widget_id`, refunds the credit slot if anything fails (`release_analysis_slot`).
+- Persists the summary + `widget_id`, and on failure releases the run's concurrency lease (`release_analysis_slot`). Free-tier credits are deliberately **not** refunded so quota accounting stays strictly server-side (a client-callable refund could reset its own usage).
 
 ---
 

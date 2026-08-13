@@ -85,6 +85,18 @@ const SUMMARY = {
   created_at: "2026-08-13T00:00:00Z",
 };
 
+const PROJECTED = {
+  title: "Great product",
+  reviews_count: 12,
+  keywords: [],
+  positive_sentiment_pct: 90,
+  analysis: {
+    themes: [],
+    sentiment: { positive_pct: null, neutral_pct: null, negative_pct: null },
+  },
+  created_at: "2026-08-13T00:00:00Z",
+};
+
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
   vi.stubEnv("SUPABASE_SECRET_KEY", "test-secret");
@@ -114,7 +126,7 @@ describe("widget GET", () => {
     const res = await GET(widgetRequest("abc"));
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual(SUMMARY);
+    await expect(res.json()).resolves.toEqual(PROJECTED);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=300, s-maxage=300");
 
@@ -134,6 +146,21 @@ describe("widget GET", () => {
     const res = await GET(widgetRequest("missing"));
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toEqual({ error: "Summary not found." });
+  });
+
+  it("TEST W4b — malformed widget_id (unsafe chars) returns 400 before any query", async () => {
+    const fake = mockSupabase(makeFakeSupabase({ maybeSingleResult: SUMMARY }));
+    const res = await GET(widgetRequest('"><script>alert(1)</script>'));
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "Invalid widget_id parameter." });
+    expect(fake.calls.maybeSingle).toHaveLength(0);
+  });
+
+  it("TEST W4c — oversized widget_id returns 400", async () => {
+    const fake = mockSupabase(makeFakeSupabase({ maybeSingleResult: SUMMARY }));
+    const res = await GET(widgetRequest("a".repeat(65)));
+    expect(res.status).toBe(400);
+    expect(fake.calls.maybeSingle).toHaveLength(0);
   });
 
   it("TEST W5 — database error returns 500 without leaking details", async () => {

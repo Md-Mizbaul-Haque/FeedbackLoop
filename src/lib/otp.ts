@@ -8,9 +8,16 @@ export function generateOtpCode(): string {
 // OTPs are low-entropy, so a bare digest is brute-forceable if the hash table
 // ever leaks. scrypt with a per-code random salt makes offline cracking
 // expensive; the stored value is "salt:derived-key".
+//
+// Cost parameters are explicit (N=2^16, r=8, p=1) rather than OpenSSL's
+// defaults (N=2^14), and are shared by hash + verify. OTP rows expire in 10
+// minutes, so a params bump never needs to migrate stored hashes.
+const SCRYPT_COST = { N: 2 ** 16, r: 8, p: 1 } as const;
+const SCRYPT_KEYLEN = 32;
+
 export function hashOtpCode(code: string): string {
   const salt = randomBytes(16);
-  const derived = scryptSync(code, salt, 32);
+  const derived = scryptSync(code, salt, SCRYPT_KEYLEN, SCRYPT_COST);
   return `${salt.toString("hex")}:${derived.toString("hex")}`;
 }
 
@@ -19,7 +26,7 @@ export function verifyOtpCode(code: string, stored: string): boolean {
   if (!saltHex || !keyHex) return false;
   const salt = Buffer.from(saltHex, "hex");
   const expected = Buffer.from(keyHex, "hex");
-  const actual = scryptSync(code, salt, expected.length);
+  const actual = scryptSync(code, salt, expected.length, SCRYPT_COST);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 

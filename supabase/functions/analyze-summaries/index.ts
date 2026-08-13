@@ -317,9 +317,11 @@ function jsonResponse(body: unknown, status: number, headers: Record<string, str
   });
 }
 
-// Failed (or aborted) runs refund their quota/lease per the existing business
-// rules: release_analysis_slot(p_failed=true) drops the pro lease and refunds
-// a free credit. Logs only operational context — never review content.
+// Failed (or aborted) runs release their run's slot:
+// release_analysis_slot(p_failed=true) drops the pro concurrency lease.
+// Free-tier credits are intentionally NOT refunded (P3-1): a client-callable
+// refund let users reset their own free quota, so accounting stays strictly
+// server-side. Logs only operational context — never review content.
 async function refundSlot(
   supabase: ReturnType<typeof createClient>,
 ): Promise<void> {

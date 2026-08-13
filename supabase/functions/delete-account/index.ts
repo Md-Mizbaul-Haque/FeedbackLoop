@@ -89,13 +89,25 @@ Deno.serve(async (req: Request) => {
   try {
     const bucket = admin.storage.from("avatars");
     // Storage lists at most `limit` objects per call; keep paging until a
-    // short page proves the folder is drained so no files are ever left behind.
+    // short page proves the folder is drained so no files are ever left
+    // behind. Any list/remove error breaks the loop — never spin forever.
     for (;;) {
-      const { data: avatarFiles } = await bucket.list(user.id, { limit: 100 });
+      const { data: avatarFiles, error: listError } = await bucket.list(
+        user.id,
+        { limit: 100 },
+      );
+      if (listError) {
+        console.error("failed to list avatar files:", listError);
+        break;
+      }
       if (!avatarFiles || avatarFiles.length === 0) break;
-      await bucket.remove(
+      const { error: removeError } = await bucket.remove(
         avatarFiles.map((file) => `${user.id}/${file.name}`),
       );
+      if (removeError) {
+        console.error("failed to remove avatar files:", removeError);
+        break;
+      }
       if (avatarFiles.length < 100) break;
     }
   } catch (err) {
@@ -116,6 +128,9 @@ Deno.serve(async (req: Request) => {
               Accept: "application/vnd.api+json",
               Authorization: `Bearer ${lsApiKey}`,
             },
+            // A stalled billing API must never hold the function until the
+            // platform timeout and block the user's account deletion.
+            signal: AbortSignal.timeout(10_000),
           },
         );
         if (!res.ok) {
