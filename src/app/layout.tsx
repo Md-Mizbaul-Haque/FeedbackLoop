@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "@/components/ui/toaster";
+import { SiteFooter } from "@/components/site-footer";
 import { Providers } from "@/app/providers";
 import "./globals.css";
 
@@ -30,7 +31,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full antialiased">
         <Providers>
-          {children}
+          <div className="flex min-h-svh flex-col">
+            <div className="flex flex-1 flex-col">{children}</div>
+            <SiteFooter />
+          </div>
           <Toaster />
         </Providers>
       </body>
