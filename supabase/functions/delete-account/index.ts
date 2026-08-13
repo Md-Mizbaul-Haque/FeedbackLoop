@@ -85,6 +85,20 @@ Deno.serve(async (req: Request) => {
     console.error("failed to delete user_settings:", settingsError);
   }
 
+  // Best-effort: remove avatar files so storage never outlives the account.
+  try {
+    const { data: avatarFiles } = await admin.storage
+      .from("avatars")
+      .list(user.id, { limit: 100 });
+    if (avatarFiles && avatarFiles.length > 0) {
+      await admin.storage
+        .from("avatars")
+        .remove(avatarFiles.map((file) => `${user.id}/${file.name}`));
+    }
+  } catch (err) {
+    console.error("failed to delete avatar files:", err);
+  }
+
   // Best-effort: cancel the subscription so a deleted account is never
   // charged again. Never block account deletion on billing.
   if (lsSubscriptionId) {

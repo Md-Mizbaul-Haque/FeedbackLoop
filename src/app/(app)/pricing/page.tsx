@@ -34,7 +34,7 @@ const FREE_FEATURES = [
 ];
 
 const PRO_FEATURES = [
-  "Unlimited AI summaries",
+  "50 AI summaries per day",
   "Unlimited reviews per batch",
   "Everything in Free",
   "Priority processing",

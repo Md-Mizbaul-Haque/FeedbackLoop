@@ -12,19 +12,39 @@ const FREE_MAX_TOTAL_CHARS = 30000;
 const PRO_MAX_TOTAL_CHARS = 100000;
 const CREDITS_PER_WINDOW = 10;
 
+// Pro AI caps — the DB RPC clamps to these same values server-side, so these
+// constants must stay in sync with the caps enforced in
+// try_reserve_analysis_slot (supabase/migrations/20260813_p1_quota_and_abuse.sql).
+const PRO_DAILY_LIMIT = 50;
+const PRO_MONTHLY_LIMIT = 400;
+const PRO_CONCURRENCY_LIMIT = 3;
+
 const RICH_MAX_TOKENS = 2200;
 const LEGACY_MAX_TOKENS = 900;
 
 const GARBAGE_INPUT_ERROR =
   "We couldn't find meaningful reviews. Please check your input and try again.";
 const REVIEW_LIMIT_ERROR =
-  "The free plan supports up to 50 reviews per input. Upgrade to Pro for unlimited reviews.";
+  "The free plan supports up to 50 reviews per input. Upgrade to Pro for more.";
 const RATE_LIMIT_ERROR =
-  "You've used all 10 of your free daily summaries. Upgrade to Pro for unlimited summaries.";
+  "You've used all 10 of your free daily summaries. Upgrade to Pro for more.";
+const PRO_DAILY_ERROR =
+  "You've reached your Pro limit of 50 AI summaries per day. It resets within 24 hours.";
+const PRO_MONTHLY_ERROR =
+  "You've reached your Pro monthly limit of 400 AI summaries. It resets on a rolling 30-day basis.";
+const CONCURRENCY_ERROR =
+  "Too many analyses are running at once. Wait a moment and try again.";
 const ANALYSIS_FAILED_ERROR =
   "We couldn't produce a reliable analysis from these reviews. Please try again.";
 const USAGE_ERROR =
   "Could not check your usage. Please try again in a moment.";
+
+const RESERVE_RESULTS: Record<string, string> = {
+  free_limit: RATE_LIMIT_ERROR,
+  pro_daily: PRO_DAILY_ERROR,
+  pro_monthly: PRO_MONTHLY_ERROR,
+  concurrency: CONCURRENCY_ERROR,
+};
 
 type Sentiment = "positive" | "neutral" | "negative";
 type MixedSentiment = Sentiment | "mixed";
@@ -145,7 +165,12 @@ Deno.serve(async (req: Request) => {
 
   const { data: reserved, error: reserveError } = await supabase.rpc(
     "try_reserve_analysis_slot",
-    { p_limit: CREDITS_PER_WINDOW },
+    {
+      p_limit: CREDITS_PER_WINDOW,
+      p_pro_daily_limit: PRO_DAILY_LIMIT,
+      p_pro_monthly_limit: PRO_MONTHLY_LIMIT,
+      p_concurrency_limit: PRO_CONCURRENCY_LIMIT,
+    },
   );
   if (reserveError) {
     console.error("rate limit rpc failed:", reserveError);
@@ -155,9 +180,9 @@ Deno.serve(async (req: Request) => {
       corsHeaders,
     );
   }
-  if (reserved === false) {
+  if (reserved !== "ok") {
     return jsonResponse(
-      { error: RATE_LIMIT_ERROR, error_code: "usage_limit_exceeded" },
+      { error: RESERVE_RESULTS[reserved] ?? RATE_LIMIT_ERROR, error_code: "usage_limit_exceeded" },
       429,
       corsHeaders,
     );
@@ -176,6 +201,7 @@ Deno.serve(async (req: Request) => {
       console.error("analysis failed:", err2);
       const { error: refundError } = await supabase.rpc(
         "release_analysis_slot",
+        { p_failed: true },
       );
       if (refundError) {
         console.error("refund failed:", refundError);
@@ -186,6 +212,13 @@ Deno.serve(async (req: Request) => {
         corsHeaders,
       );
     }
+  }
+
+  const { error: releaseError } = await supabase.rpc("release_analysis_slot", {
+    p_failed: false,
+  });
+  if (releaseError) {
+    console.error("release failed:", releaseError);
   }
 
   return jsonResponse({ data: result }, 200, corsHeaders);
