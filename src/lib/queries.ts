@@ -45,6 +45,33 @@ const DEFAULT_CREDITS: Credits = {
   billingInterval: null,
 };
 
+const WINDOW_HOURS = 24;
+
+/**
+ * The user's usage as of now, applying the same rolling 24-hour window rule
+ * the DB RPC enforces (try_reserve_analysis_slot): once the window that
+ * started at window_start has passed, the count is effectively reset and the
+ * next window starts from now. Mirrors the RPC so the UI never shows a
+ * "resets at" time that is already in the past.
+ */
+export function effectiveUsage(
+  credits: Credits,
+  now: Date = new Date(),
+): { used: number; resetAt: Date | null } {
+  const windowEnd = credits.windowStart
+    ? new Date(
+        new Date(credits.windowStart).getTime() + WINDOW_HOURS * 60 * 60 * 1000,
+      )
+    : null;
+  if (windowEnd && now.getTime() >= windowEnd.getTime()) {
+    return {
+      used: 0,
+      resetAt: new Date(now.getTime() + WINDOW_HOURS * 60 * 60 * 1000),
+    };
+  }
+  return { used: credits.used, resetAt: windowEnd };
+}
+
 /** True when the user had a paid subscription that is no longer active. */
 export function isExpiredSubscription(credits: Credits | null): boolean {
   if (!credits) return false;

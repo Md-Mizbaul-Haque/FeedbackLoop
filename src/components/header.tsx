@@ -28,7 +28,7 @@ import AnimatedSelect, {
 } from "@/components/ui/great-ui-animated-select";
 import { createClient } from "@/lib/supabase/client";
 import { useAvatarUrl } from "@/lib/avatar";
-import { useCredits, useUser } from "@/lib/queries";
+import { effectiveUsage, useCredits, useUser } from "@/lib/queries";
 
 const dropdownOptions: DropdownOption[] = [
   { id: "profile", label: "Profile", icon: UserIcon },
@@ -78,7 +78,7 @@ export function Header() {
   const [loggingOut, setLoggingOut] = useState(false);
 
   const plan = credits?.plan ?? "free";
-  const used = credits?.used ?? null;
+  const { used } = effectiveUsage(credits);
   const pageTitle = pageTitles[pathname] ?? "";
 
   const displayName =

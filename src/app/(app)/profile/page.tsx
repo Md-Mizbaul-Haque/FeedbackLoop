@@ -49,6 +49,7 @@ import {
 } from "@/lib/avatar";
 import {
   businessQueryKey,
+  effectiveUsage,
   isExpiredSubscription,
   useBusinessProfile,
   useCredits,
@@ -57,7 +58,6 @@ import {
 } from "@/lib/queries";
 
 const CREDITS_PER_WINDOW = 10;
-const WINDOW_HOURS = 24;
 
 function formatDate(value: string | undefined) {
   if (!value) return "—";
@@ -137,12 +137,9 @@ export default function ProfilePage() {
     setWebsiteForm(website);
   }
 
-  const usageUsed = credits?.used ?? 0;
+  const { used: usageUsed, resetAt: usageResetAt } = effectiveUsage(credits);
   const plan = credits?.plan ?? "free";
   const expired = isExpiredSubscription(credits);
-  const usageResetAt = credits?.windowStart
-    ? new Date(new Date(credits.windowStart).getTime() + WINDOW_HOURS * 60 * 60 * 1000)
-    : null;
 
   const subscriptionStatusInfo: Record<
     string,
@@ -722,7 +719,12 @@ export default function ProfilePage() {
                   </span>
                   {usageResetAt ? (
                     <span className="text-xs text-muted-foreground">
-                      Resets at{" "}
+                      Resets{" "}
+                      {usageResetAt.toLocaleDateString([], {
+                        month: "short",
+                        day: "numeric",
+                      })}{" "}
+                      at{" "}
                       {usageResetAt.toLocaleTimeString([], {
                         hour: "numeric",
                         minute: "2-digit",
@@ -750,8 +752,8 @@ export default function ProfilePage() {
                   </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Free plan: up to {CREDITS_PER_WINDOW} credits every{" "}
-                    {WINDOW_HOURS} hours.
+                    Free plan: up to {CREDITS_PER_WINDOW} credits every 24
+                    hours.
                   </p>
                 )}
                 <Button
