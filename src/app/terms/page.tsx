@@ -112,11 +112,13 @@ export default function TermsPage() {
 
       <LegalSection title="10. Governing law and changes">
         <LegalParagraph>
-          These Terms are governed by the laws of the jurisdiction in which the
-          provider is established, without regard to conflict-of-law rules.
-          We may update these Terms; material changes will be announced on the
-          Service, and continued use after the effective date constitutes
-          acceptance. Questions: {contact}.
+          These Terms are governed by the laws applicable in your jurisdiction
+          of residence, without regard to conflict-of-law rules. Where possible,
+          we will first seek to resolve any dispute amicably through support
+          ({contact}) before formal proceedings. We may update these Terms;
+          material changes will be announced on the Service, and continued use
+          after the effective date constitutes acceptance. Questions:
+          {contact}.
         </LegalParagraph>
       </LegalSection>
     </LegalPage>
