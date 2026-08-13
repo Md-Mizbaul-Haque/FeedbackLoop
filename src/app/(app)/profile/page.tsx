@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
@@ -100,11 +100,23 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [settingPassword, setSettingPassword] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [removeAvatarOpen, setRemoveAvatarOpen] = useState(false);
+  const [pendingAvatar, setPendingAvatar] = useState<{
+    blob: Blob;
+    previewUrl: string;
+  } | null>(null);
+  const [removePending, setRemovePending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const avatarUrl = useAvatarUrl(user);
   const [savingBusiness, setSavingBusiness] = useState(false);
+
+  // Revoke the pending avatar's object URL whenever it's replaced or when the
+  // page unmounts, so previews never leak memory.
+  useEffect(() => {
+    return () => {
+      if (pendingAvatar) URL.revokeObjectURL(pendingAvatar.previewUrl);
+    };
+  }, [pendingAvatar]);
 
   if (prevUser !== user) {
     setPrevUser(user);
@@ -217,28 +229,76 @@ export default function ProfilePage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setSaving(true);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({
-      data: {
-        full_name: fullName.trim(),
-      },
-    });
+    const metadata: Record<string, string> = {
+      full_name: fullName.trim(),
+    };
+    let uploadedPath: string | null = null;
 
-    setSaving(false);
+    try {
+      if (pendingAvatar) {
+        // Upload the new photo first so a failed metadata update can roll back.
+        uploadedPath = getAvatarStoragePath(user.id);
+        const { error: uploadError } = await supabase.storage
+          .from("avatars")
+          .upload(uploadedPath, pendingAvatar.blob, {
+            contentType: "image/webp",
+          });
+        if (uploadError) {
+          console.error("Avatar upload failed:", uploadError);
+          toast.error("Could not upload the image. Please try again.");
+          return;
+        }
+        metadata.avatar_url = uploadedPath;
+      } else if (removePending) {
+        metadata.avatar_url = "";
+      }
 
-    if (error) {
-      toast.error(friendlyAuthMessage(error));
-      return;
+      const { error } = await supabase.auth.updateUser({ data: metadata });
+      if (error) {
+        if (uploadedPath) {
+          await supabase.storage.from("avatars").remove([uploadedPath]);
+        }
+        toast.error(friendlyAuthMessage(error));
+        return;
+      }
+
+      if (uploadedPath) {
+        // Sweep stale files in the user's folder so old avatars don't linger.
+        const { data: existing, error: listError } = await supabase.storage
+          .from("avatars")
+          .list(user.id);
+        if (!listError && existing) {
+          const stale = existing
+            .map((item) => `${user.id}/${item.name}`)
+            .filter((itemPath) => itemPath !== uploadedPath);
+          if (stale.length > 0) {
+            await supabase.storage.from("avatars").remove(stale);
+          }
+        }
+      } else if (removePending && isStorageAvatarPath(avatarPath)) {
+        // Deletion after the metadata update so a failed update keeps the file.
+        await supabase.storage.from("avatars").remove([avatarPath]);
+      }
+
+      setPendingAvatar(null);
+      setRemovePending(false);
+      setAvatarPath(uploadedPath ?? (removePending ? "" : avatarPath));
+      queryClient.invalidateQueries({ queryKey: userQueryKey });
+      toast.success("Profile updated successfully!");
+    } catch (err) {
+      console.error("Failed to save profile:", err);
+      toast.error("Could not save your profile. Please try again.");
+    } finally {
+      setSaving(false);
     }
-
-    queryClient.invalidateQueries({ queryKey: userQueryKey });
-    toast.success("Profile updated successfully!");
   };
 
   const handleAvatarChange = async (file: File | null) => {
-    if (!file || !user || uploading) return;
+    if (!file || !user) return;
 
     if (!AVATAR_MIME_TYPES.includes(file.type)) {
       toast.error("Please choose a PNG, JPG, WebP, or GIF image.");
@@ -249,82 +309,20 @@ export default function ProfilePage() {
       return;
     }
 
-    setUploading(true);
-    const supabase = createClient();
-
     try {
       const blob = await resizeAvatar(file);
-      const path = getAvatarStoragePath(user.id);
-
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(path, blob, { contentType: "image/webp" });
-
-      if (uploadError) {
-        toast.error("Could not upload the image. Please try again.");
-        return;
-      }
-
-      const { data: existing, error: listError } = await supabase.storage
-        .from("avatars")
-        .list(user.id);
-      if (!listError && existing) {
-        const stale = existing
-          .map((item) => `${user.id}/${item.name}`)
-          .filter((itemPath) => itemPath !== path);
-        if (stale.length > 0) {
-          await supabase.storage.from("avatars").remove(stale);
-        }
-      }
-
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: { avatar_url: path },
-      });
-
-      if (updateError) {
-        await supabase.storage.from("avatars").remove([path]);
-        toast.error(friendlyAuthMessage(updateError));
-        return;
-      }
-
-      setAvatarPath(path);
-      queryClient.invalidateQueries({ queryKey: userQueryKey });
-      toast.success("Profile photo updated!");
-    } catch (err) {
-      console.error("Avatar upload failed:", err);
+      setPendingAvatar({ blob, previewUrl: URL.createObjectURL(blob) });
+      setRemovePending(false);
+    } catch {
       toast.error("Could not process the image. Please try again.");
     } finally {
-      setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  const handleRemoveAvatar = async () => {
-    if (!user || uploading) return;
-
-    const supabase = createClient();
-    if (isStorageAvatarPath(avatarPath)) {
-      const { error: removeError } = await supabase.storage
-        .from("avatars")
-        .remove([avatarPath]);
-      if (removeError) {
-        toast.error("Could not remove the photo. Please try again.");
-        return;
-      }
-    }
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      data: { avatar_url: "" },
-    });
-
-    if (updateError) {
-      toast.error(friendlyAuthMessage(updateError));
-      return;
-    }
-
-    setAvatarPath("");
-    queryClient.invalidateQueries({ queryKey: userQueryKey });
-    toast.success("Profile photo removed.");
+  const confirmRemoveAvatar = () => {
+    setRemoveAvatarOpen(false);
+    setRemovePending(true);
   };
 
   const hasEmailIdentity =
@@ -550,7 +548,12 @@ export default function ProfilePage() {
         <Card className="h-fit">
           <CardContent className="p-6 flex flex-col items-center text-center space-y-4">
             <Avatar size="lg" className="!size-20">
-              {avatarUrl ? (
+              {pendingAvatar ? (
+                <AvatarImage
+                  src={pendingAvatar.previewUrl}
+                  alt={displayName}
+                />
+              ) : !removePending && avatarUrl ? (
                 <AvatarImage src={avatarUrl} alt={displayName} />
               ) : null}
               <AvatarFallback className="text-xl">{initials}</AvatarFallback>
@@ -806,7 +809,12 @@ export default function ProfilePage() {
                 <Label>Profile photo</Label>
                 <div className="flex items-center gap-4">
                   <Avatar size="lg" className="!size-16">
-                    {avatarUrl ? (
+                    {pendingAvatar ? (
+                      <AvatarImage
+                        src={pendingAvatar.previewUrl}
+                        alt={fullName || "Profile"}
+                      />
+                    ) : !removePending && avatarUrl ? (
                       <AvatarImage src={avatarUrl} alt={fullName || "Profile"} />
                     ) : null}
                     <AvatarFallback className="text-lg">{initials}</AvatarFallback>
@@ -817,33 +825,41 @@ export default function ProfilePage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={uploading}
+                        disabled={saving}
                         onClick={() => fileInputRef.current?.click()}
                         className="hover:bg-muted h-9"
                       >
-                        {uploading ? (
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        ) : (
-                          <Upload className="h-4 w-4 mr-2" />
-                        )}
-                        {uploading ? "Uploading…" : "Upload photo"}
+                        <Upload className="h-4 w-4 mr-2" />
+                        {pendingAvatar ? "Change photo" : "Upload photo"}
                       </Button>
-                      {avatarPath ? (
+                      {avatarPath || pendingAvatar || removePending ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          disabled={uploading}
-                          onClick={() => setRemoveAvatarOpen(true)}
+                          disabled={saving}
+                          onClick={() => {
+                            if (pendingAvatar) {
+                              setPendingAvatar(null);
+                            } else if (removePending) {
+                              setRemovePending(false);
+                            } else {
+                              setRemoveAvatarOpen(true);
+                            }
+                          }}
                           className="text-destructive hover:text-destructive hover:bg-destructive/5 h-9"
                         >
-                          Remove
+                          {removePending
+                            ? "Undo removal"
+                            : pendingAvatar
+                              ? "Discard photo"
+                              : "Remove"}
                         </Button>
                       ) : null}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       PNG, JPG, WebP, or GIF up to 2 MB. Resized to 256px
-                      automatically.
+                      automatically. Changes apply when you save.
                     </p>
                   </div>
                 </div>
@@ -1023,33 +1039,27 @@ export default function ProfilePage() {
       <Dialog
         open={removeAvatarOpen}
         onOpenChange={(open) => {
-          if (!open && !uploading) setRemoveAvatarOpen(false);
+          if (!open) setRemoveAvatarOpen(false);
         }}
       >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Remove profile photo?</DialogTitle>
             <DialogDescription>
-              Your profile photo will be permanently deleted from your
-              account.
+              Your profile photo will be removed when you click Save Changes.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="outline"
               className="border-border"
-              disabled={uploading}
               onClick={() => setRemoveAvatarOpen(false)}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
-              disabled={uploading}
-              onClick={() => {
-                setRemoveAvatarOpen(false);
-                handleRemoveAvatar();
-              }}
+              onClick={confirmRemoveAvatar}
             >
               Remove photo
             </Button>
