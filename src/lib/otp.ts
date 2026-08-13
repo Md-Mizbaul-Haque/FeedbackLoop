@@ -1,17 +1,25 @@
-import { createHash, randomInt, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { sendMail } from "@/lib/email";
 
 export function generateOtpCode(): string {
   return String(randomInt(100000, 1000000));
 }
 
+// OTPs are low-entropy, so a bare digest is brute-forceable if the hash table
+// ever leaks. scrypt with a per-code random salt makes offline cracking
+// expensive; the stored value is "salt:derived-key".
 export function hashOtpCode(code: string): string {
-  return createHash("sha256").update(code).digest("hex");
+  const salt = randomBytes(16);
+  const derived = scryptSync(code, salt, 32);
+  return `${salt.toString("hex")}:${derived.toString("hex")}`;
 }
 
-export function verifyOtpCode(code: string, expectedHash: string): boolean {
-  const actual = Buffer.from(createHash("sha256").update(code).digest("hex"));
-  const expected = Buffer.from(expectedHash);
+export function verifyOtpCode(code: string, stored: string): boolean {
+  const [saltHex, keyHex] = stored.split(":");
+  if (!saltHex || !keyHex) return false;
+  const salt = Buffer.from(saltHex, "hex");
+  const expected = Buffer.from(keyHex, "hex");
+  const actual = scryptSync(code, salt, expected.length);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
